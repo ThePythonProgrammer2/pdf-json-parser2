@@ -71,7 +71,9 @@ const validateRapidAPISecret = (req, res, next) => {
   }
 
   // B. INTERNAL VELOCITY PROTECTION
-  if (isRateLimited(req.ip)) {
+  // Uses our brand new transaction tracker parameter if available to identify distinct consumers safely
+  const rateLimitIdentifier = req.rapidApiTransaction?.clientIp || req.ip;
+  if (isRateLimited(rateLimitIdentifier)) {
     return sendError(
       res,
       429,
