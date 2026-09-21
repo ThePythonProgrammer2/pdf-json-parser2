@@ -64,13 +64,14 @@ function resolveApiKey(req) {
 }
 
 /**
- * Builds the correct endpoint URL and headers for the detected provider.
- *
+ * Builds the correct endpoint URL, headers, and payloads for the detected provider.
+ * 
  * @param {{ key: string, provider: 'google' | 'openrouter' }} resolved
+ * @param {string} rawText - the raw document text extracted from the PDF to deliver
  * @param {string} [model] - model identifier (defaults to a sensible per-provider value)
- * @returns {{ url: string, headers: Object }}
+ * @returns {{ url: string, headers: Object, body: Object }}
  */
-function buildProviderRequest(resolved, model) {
+function buildProviderRequest(resolved, rawText, model) {
   if (resolved.provider === 'openrouter') {
     const useModel = model || 'openai/gpt-4o-mini';
     return {
@@ -81,18 +82,25 @@ function buildProviderRequest(resolved, model) {
         'HTTP-Referer': process.env.APP_BASE_URL || 'https://pdf-parser.rapidapi.com',
         'X-Title': 'PDF Document Parser',
       },
-      body: { model: useModel },
+      body: { 
+        model: useModel,
+        messages: [{ role: 'user', content: rawText }]
+      },
     };
   }
 
-  // Default: Google Gemini format
+  // Default: Google Gemini schema structure validation fix
   const useModel = model || 'gemini-1.5-flash';
   return {
     url: `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${resolved.key}`,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: { model: useModel },
+    body: {
+      contents: [{
+        parts: [{ text: rawText }]
+      }]
+    },
   };
 }
 
