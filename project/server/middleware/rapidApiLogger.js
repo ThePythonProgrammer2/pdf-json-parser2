@@ -32,12 +32,16 @@ function rapidApiTransactionLogger(req, res, next) {
   const rapidApiUser = req.headers['x-rapidapi-user'] || null;
   const rapidApiSubscription = req.headers['x-rapidapi-subscription'] || null;
   const rapidApiProxy = req.headers['x-rapidapi-proxy'] || null;
+  
+  // Extract the true downstream client IP routed through the proxy cluster
+  const realClientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
 
-  // Attach transaction metadata to req for downstream handlers
+  // Attach transaction metadata to req for downstream handlers and rate-limit tracking
   req.rapidApiTransaction = {
     user: rapidApiUser,
     subscription: rapidApiSubscription,
     proxy: rapidApiProxy,
+    clientIp: realClientIp,
     timestamp: new Date().toISOString(),
   };
 
@@ -48,6 +52,7 @@ function rapidApiTransactionLogger(req, res, next) {
       `[RapidAPI] ${new Date().toISOString()} | ` +
       `user=${rapidApiUser || 'unknown'} | ` +
       `subscription=${maskedSub} | ` +
+      `client_ip=${realClientIp} | ` +
       `${req.method} ${req.path}`
     );
   }
