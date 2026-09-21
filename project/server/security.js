@@ -58,12 +58,19 @@ const upload = multer({
 
 // 2. GATEWAY SECURITY: Middleware to validate the RapidAPI Proxy Secret & Velocity
 const validateRapidAPISecret = (req, res, next) => {
-  // Exclude static assets or public roots from processing guards
-  if (req.path === '/' || !req.path.startsWith('/api/')) {
+  const currentUrl = req.originalUrl || '';
+
+  // A. ALLOW LOCAL FRONTEND: Allow requests coming directly from your own hosted index.html page
+  const referer = req.headers['referer'] || '';
+  const host = req.headers['host'] || '';
+  const isInternalRequest = referer && host && referer.includes(host);
+
+  // If the request originates from your own website UI dashboard view, allow it to pass natively
+  if (currentUrl === '/' || currentUrl.startsWith('/?') || isInternalRequest) {
     return next();
   }
 
-  // A. Internal Velocity Check
+  // B. INTERNAL VELOCITY PROTECTION
   if (isRateLimited(req.ip)) {
     return sendError(
       res,
@@ -73,7 +80,7 @@ const validateRapidAPISecret = (req, res, next) => {
     );
   }
 
-  // B. Proxy Gateway Validation Check
+  // C. PROXY GATEWAY VALIDATION (For paying marketplace developers)
   const incomingSecret = req.headers['x-rapidapi-proxy-secret'];
   const trustedProxySecret = process.env.RAPIDAPI_PROXY_SECRET || 'YOUR_RAPIDAPI_PROXY_SECRET_HERE';
 
