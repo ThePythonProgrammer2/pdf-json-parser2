@@ -4,7 +4,9 @@ const path = require('path');
 const fs = require('fs');
 const { hashBuffer, parseDocument } = require('./parser');
 const { resolveApiKey } = require('./keyResolver');
-const { rapidApiTransactionLogger } = require('./middleware/rapidApiLogger');
+
+// FIXED PATHS: Matches case sensitivity and flat layout structuring perfectly
+const { rapidApiTransactionLogger } = require('./rapidapilogger');
 const { sendError, ERROR_CODES } = require('./middleware/errorHandler');
 
 // Import your unified security engine directly
@@ -13,7 +15,7 @@ const { upload, validateRapidAPISecret, isValidPdfBuffer } = require('./security
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Native express tightening
+// Native express tightening: removes framework trace variables
 app.disable('x-powered-by');
 
 // Cache handling...
@@ -27,20 +29,20 @@ function cacheSet(hash, data) {
   parseCache.set(hash, data);
 }
 
-// Global Logging
+// 1. GLOBAL LOGGING LAYER: Evaluates incoming proxy attributes
 app.use(rapidApiTransactionLogger);
 
-// Global Guard: Automatically enforces Rate Limits and RapidAPI Proxy secrets across your whole API pathing
-app.use(validateRapidAPISecret);
-
-// Static elements...
+// 2. PUBLIC ASSET ELEMENT STORAGE: Positioned above security block so webpage can load safely
 const publicDir = path.join(__dirname, '..', 'public');
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 app.use(express.static(publicDir));
 
-// Routes...
+// 3. GLOBAL ROUTE GUARD: Automatically enforces Rate Limits and RapidAPI Proxy secrets across your whole API pathing
+app.use(validateRapidAPISecret);
+
+// --- Secure Application Routes ---
 app.get('/api/v1/health', (req, res) => {
   res.json({ status: 'ok', cacheSize: parseCache.size });
 });
