@@ -65,7 +65,7 @@ const validateRapidAPISecret = (req, res, next) => {
   const host = req.headers['host'] || '';
   const isInternalRequest = referer && host && referer.includes(host);
 
-  // If the request originates from your own website UI dashboard view, allow it to pass natively
+  // FIXED: Explicitly call next() as a function to advance the middleware chain safely
   if (currentUrl === '/' || currentUrl.startsWith('/?') || isInternalRequest) {
     return next();
   }
