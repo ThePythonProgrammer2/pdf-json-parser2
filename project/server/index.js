@@ -11,6 +11,9 @@ const { sendError, ERROR_CODES } = require('./middleware/errorHandler');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// --- NATIVE HARDENING: Disable footprinting headers ---
+app.disable('x-powered-by');
+
 // --- In-memory cache keyed by file content hash ---
 const parseCache = new Map();
 const MAX_CACHE_SIZE = 100;
@@ -26,6 +29,37 @@ function cacheSet(hash, data) {
     parseCache.delete(firstKey);
   }
   parseCache.set(hash, data);
+}
+
+// --- INTERNAL SECURITY: In-memory sliding window rate limiter ---
+const rateLimitMap = new Map();
+const LIMIT_WINDOW_MS = 60000; // 1 minute tracking window
+const MAX_REQUESTS_PER_WINDOW = 30; // Max allowed requests per minute per IP
+
+function isRateLimited(clientIp) {
+  const now = Date.now();
+  const userData = rateLimitMap.get(clientIp);
+
+  if (!userData) {
+    rateLimitMap.set(clientIp, { count: 1, resetTime: now + LIMIT_WINDOW_MS });
+    return false;
+  }
+
+  if (now > userData.resetTime) {
+    // Window expired; clear out data and restart tracking natively
+    rateLimitMap.set(clientIp, { count: 1, resetTime: now + LIMIT_WINDOW_MS });
+    return false;
+  }
+
+  userData.count += 1;
+  return userData.count > MAX_REQUESTS_PER_WINDOW;
+}
+
+// --- INTERNAL SECURITY: Verify genuine PDF byte signatures ---
+function isValidPdfBuffer(buffer) {
+  if (!buffer || buffer.length < 4) return false;
+  // Verify the magic numbers match the official binary standard '%PDF'
+  return buffer.toString('utf8', 0, 4) === '%PDF';
 }
 
 // --- Multer config: in-memory storage, 5MB limit, PDFs only ---
@@ -45,18 +79,25 @@ const upload = multer({
 // --- RapidAPI transaction logging middleware (applied to all routes) ---
 app.use(rapidApiTransactionLogger);
 
-// --- RapidAPI Gateway Security Proxy Check ---
-// Blocks malicious requests bypassing RapidAPI's paywall/proxy infrastructure
+// --- RapidAPI Gateway Security Proxy & Rate Limit Check ---
 app.use((req, res, next) => {
-  // Exclude static assets or public roots if you want them viewable directly
+  // Exclude static assets or public roots from processing guards
   if (req.path === '/' || !req.path.startsWith('/api/')) {
     return next();
   }
 
-  // RapidAPI appends this proxy secret header exclusively on authorized routes
+  // 1. Internal Rate Limiter Check (Aligned with your exact ERROR_CODES definition)
+  if (isRateLimited(req.ip)) {
+    return sendError(
+      res,
+      429,
+      'Too many requests. Please slow down your execution rate.',
+      ERROR_CODES.RATE_LIMITED
+    );
+  }
+
+  // 2. Proxy Gateway Validation Check
   const proxySecretReceived = req.headers['x-rapidapi-proxy-secret'];
-  
-  // Set your specific secret value directly here or load via env vars (recommended)
   const trustedProxySecret = process.env.RAPIDAPI_PROXY_SECRET || 'YOUR_RAPIDAPI_PROXY_SECRET_HERE';
 
   if (!proxySecretReceived || proxySecretReceived !== trustedProxySecret) {
@@ -64,7 +105,7 @@ app.use((req, res, next) => {
       res, 
       401, 
       'Unauthorized access. Requests must be routed through the official RapidAPI Gateway.', 
-      ERROR_CODES.UNAUTHORIZED || 'UNAUTHORIZED_ACCESS'
+      ERROR_CODES.INTERNAL_ERROR // Fallback classification for security blocks
     );
   }
   
@@ -117,6 +158,15 @@ app.post('/api/v1/parse-document', (req, res) => {
         );
       }
 
+      // --- INTERNAL SECURITY: Block spoofed MIME extensions via header byte checks ---
+      if (!isValidPdfBuffer(req.file.buffer)) {
+        return sendError(
+          res, 400,
+          'Malicious or invalid file contents. The uploaded file is structurally not a valid PDF.',
+          ERROR_CODES.VALIDATION_ERROR,
+        );
+      }
+
       const buffer = req.file.buffer;
       const fileHash = hashBuffer(buffer);
 
@@ -126,16 +176,35 @@ app.post('/api/v1/parse-document', (req, res) => {
         return res.json({ ...cached, cached: true });
       }
 
-      // --- Parse PDF ---
+      // --- Parse PDF with Active Timeout Management ---
       let pdfData;
+      let timeoutId;
       try {
-        pdfData = await pdfParse(new Uint8Array(buffer));
+        const TIMEOUT_CEILING_MS = 10000; // Stop execution if parsing stalls out past 10 seconds
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('PARSING_TIMEOUT')), TIMEOUT_CEILING_MS);
+        });
+
+        pdfData = await Promise.race([
+          pdfParse(new Uint8Array(buffer)),
+          timeoutPromise
+        ]);
       } catch (parseErr) {
+        if (parseErr.message === 'PARSING_TIMEOUT') {
+          return sendError(
+            res, 408,
+            'Processing timeout exceeded while reading the document structure.',
+            ERROR_CODES.INTERNAL_ERROR
+          );
+        }
         return sendError(
           res, 422,
           'Failed to read PDF. The file may be corrupted or password-protected.',
           ERROR_CODES.UNPROCESSABLE_CONTENT,
         );
+      } finally {
+        // Garbage collection: clear the active timer immediately to conserve memory
+        clearTimeout(timeoutId);
       }
 
       const rawText = (pdfData && pdfData.text) ? pdfData.text : '';
