@@ -45,6 +45,32 @@ const upload = multer({
 // --- RapidAPI transaction logging middleware (applied to all routes) ---
 app.use(rapidApiTransactionLogger);
 
+// --- RapidAPI Gateway Security Proxy Check ---
+// Blocks malicious requests bypassing RapidAPI's paywall/proxy infrastructure
+app.use((req, res, next) => {
+  // Exclude static assets or public roots if you want them viewable directly
+  if (req.path === '/' || !req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  // RapidAPI appends this proxy secret header exclusively on authorized routes
+  const proxySecretReceived = req.headers['x-rapidapi-proxy-secret'];
+  
+  // Set your specific secret value directly here or load via env vars (recommended)
+  const trustedProxySecret = process.env.RAPIDAPI_PROXY_SECRET || 'YOUR_RAPIDAPI_PROXY_SECRET_HERE';
+
+  if (!proxySecretReceived || proxySecretReceived !== trustedProxySecret) {
+    return sendError(
+      res, 
+      401, 
+      'Unauthorized access. Requests must be routed through the official RapidAPI Gateway.', 
+      ERROR_CODES.UNAUTHORIZED || 'UNAUTHORIZED_ACCESS'
+    );
+  }
+  
+  next();
+});
+
 // --- Serve static frontend ---
 const publicDir = path.join(__dirname, '..', 'public');
 if (!fs.existsSync(publicDir)) {
