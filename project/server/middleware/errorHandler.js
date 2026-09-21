@@ -38,11 +38,19 @@ const ERROR_CODES = {
  */
 function sendError(res, statusCode, message, code) {
   const errorCode = code || defaultCodeForStatus(statusCode);
+  
+  // Extract the unique request correlation ID passed down by RapidAPI or your logger
+  // Looks inside common tracking locations to safely attach a thread context reference
+  const requestId = res.req?.headers?.['x-request-id'] || 
+                    res.req?.headers?.['x-rapidapi-request-id'] || 
+                    undefined;
+
   return res.status(statusCode).json({
     success: false,
     error: {
       code: errorCode,
       message,
+      ...(requestId && { request_id: requestId }) // Only injects if key transaction context exists
     },
   });
 }
