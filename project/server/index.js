@@ -6,7 +6,7 @@ const { hashBuffer, parseDocument, buildAiPrompt } = require('./parser');
 const { resolveApiKey, buildProviderRequest, safeFetch } = require('./keyResolver');
 
 // Path configurations synchronized with your flat file architecture
-const { rapidApiTransactionLogger } = require('./middleware/rapidapilogger');
+const { rapidApiTransactionLogger } = require('./middleware/rapidApiLogger');
 const { sendError, ERROR_CODES } = require('./middleware/errorHandler');
 
 // Import your unified security engine directly
