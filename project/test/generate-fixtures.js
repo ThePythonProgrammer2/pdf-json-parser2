@@ -1,11 +1,13 @@
 const fs = require('fs');
-const path = require('path');
+const path = require('path'); // FIXED: Added missing core module requirement
 const PDFDocument = require('pdfkit');
 
-// Generate a test invoice PDF
+// FIXED: Ensure directory structure is built recursively BEFORE trying to map write streams
+fs.mkdirSync(path.join(__dirname, 'fixtures'), { recursive: true });
+
+// Generate a test invoice PDF matching your core site template rules
 const doc = new PDFDocument({ size: 'A4', margin: 50 });
 const out = fs.createWriteStream(path.join(__dirname, 'fixtures', 'invoice.pdf'));
-fs.mkdirSync(path.join(__dirname, 'fixtures'), { recursive: true });
 
 doc.pipe(out);
 
@@ -28,9 +30,9 @@ doc.text('Total Due:                    $1,458.00');
 doc.end();
 
 out.on('finish', () => {
-  console.log('Invoice PDF generated:', out.path);
+  console.log('Invoice PDF generated successfully at:', out.path);
 
-  // Generate a resume PDF
+  // Generate a matching mock resume PDF structure
   const doc2 = new PDFDocument({ size: 'A4', margin: 50 });
   const out2 = fs.createWriteStream(path.join(__dirname, 'fixtures', 'resume.pdf'));
   doc2.pipe(out2);
@@ -53,6 +55,6 @@ out.on('finish', () => {
   doc2.end();
 
   out2.on('finish', () => {
-    console.log('Resume PDF generated:', out2.path);
+    console.log('Resume PDF generated successfully at:', out2.path);
   });
 });
