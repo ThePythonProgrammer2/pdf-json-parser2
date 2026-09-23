@@ -10,199 +10,110 @@ function hashBuffer(buffer) {
 }
 
 /**
- * Technical skills dictionary asset matching pool.
- */
-const KNOWN_SKILLS = [
-  'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin',
-  'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Next.js', 'Nuxt', 'Django', 'Flask', 'HTML5', 'CSS3', 'Tailwind',
-  'SQL', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'GraphQL', 'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Git'
-];
-
-/**
- * Attempts to detect the currency symbol/code from text.
- * @param {string} text
- * @returns {string|null}
- */
-function detectCurrency(text) {
-  const currencyPatterns = [
-    { regex: /\$/g, code: 'USD' },
-    { regex: /€/g, code: 'EUR' },
-    { regex: /£/g, code: 'GBP' },
-    { regex: /¥/g, code: 'JPY' },
-    { regex: /₹/g, code: 'INR' },
-  ];
-  for (const p of currencyPatterns) {
-    if (p.regex.test(text)) return p.code;
-  }
-  const codeMatch = text.match(/\b(USD|EUR|GBP|JPY|INR|CAD|AUD|CHF|CNY)\b/i);
-  return codeMatch ? codeMatch[1].toUpperCase() : null;
-}
-
-/**
- * Extracts and optimizes line items from invoice text using native heuristics.
- */
-function extractInvoiceItems(text) {
-  const items = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const headerPattern = /^(item|description|qty|quantity|subtotal|sub\s*total|total|grand\s*total|total\s*due|amount\s*due|tax|vat|sales\s*tax|gst|discount|amount|s\.no|sl\.no|#|date|invoice|bill\s+to|ship\s+to|balance|payment|remit|terms)/i;
-
-  for (const line of lines) {
-    if (headerPattern.test(line)) continue;
-    if (line.length < 3) continue;
-
-    let description = null;
-    let quantity = null;
-    let unitPrice = null;
-    let totalPrice = null;
-
-    const qtyPriceMatch = line.match(/^(.+?)\s+(\d+)\s*[xX@]\s*[\$€£₹]?([\d,]+\.?\d*)\s*\$/);
-    if (qtyPriceMatch) {
-      description = qtyPriceMatch[1].trim();
-      quantity = parseInt(qtyPriceMatch[2], 10);
-      unitPrice = parseFloat(qtyPriceMatch[3].replace(/,/g, ''));
-      totalPrice = quantity * unitPrice;
-    }
-
-    if (!description) {
-      const trailingPriceMatch = line.match(/^(.+?)\s+[\$€£₹]?([\d,]+\.?\d*)\s*\$/);
-      if (trailingPriceMatch) {
-        const rawDesc = trailingPriceMatch[1].trim();
-        if (!/^[0-9.,\s]+\$/.test(rawDesc)) {
-          description = rawDesc;
-          totalPrice = parseFloat(trailingPriceMatch[2].replace(/,/g, ''));
-        }
-      }
-    }
-
-    if (description) {
-      const cleanDesc = description.replace(/\s+/g, ' ').trim();
-      items.push({
-        description: cleanDesc,
-        quantity: !isNaN(quantity) ? quantity : null,
-        unit_price: !isNaN(unitPrice) ? unitPrice : null,
-        total_price: !isNaN(totalPrice) ? totalPrice : null,
-      });
-    }
-    if (items.length >= 20) break;
-  }
-  return items;
-}
-
-/**
- * Native Heuristic Parser (Fallback only)
- * Processes data if the AI API is unreachable or fails.
- */
-function parseSingleChunk(rawText) {
-  const normalizedText = rawText.toLowerCase();
-  let documentType = 'unknown';
-  let confidenceScore = 0.5;
-  let primaryEntity = null;
-  
-  if (normalizedText.includes('invoice') || normalizedText.includes('bill to') || normalizedText.includes('amount due')) {
-    documentType = 'invoice';
-    confidenceScore = 0.85;
-    const entityMatch = rawText.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s+(?:Inc\.|Ltd\.|LLC|Corp\.))\b/);
-    primaryEntity = entityMatch ? entityMatch[1] : 'Unknown Vendor';
-  } else if (normalizedText.includes('experience') || normalizedText.includes('education') || normalizedText.includes('resume')) {
-    documentType = 'resume';
-    confidenceScore = 0.90;
-    const cleanTextStart = rawText.replace(/^\s*\d+\.\s*/, '').trim();
-    const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
-    primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
-  }
-
-  const currencyDetected = detectCurrency(rawText);
-  const invoiceItems = documentType === 'invoice' ? extractInvoiceItems(rawText) : [];
-  
-  const skillsExtracted = [];
-  if (documentType === 'resume') {
-    for (const skill of KNOWN_SKILLS) {
-      const regex = new RegExp(`\\b${skill.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i');
-      if (regex.test(rawText)) {
-        skillsExtracted.push(skill);
-      }
-    }
-  }
-
-  let totalAmount = null;
-  if (documentType === 'invoice') {
-    const totalMatch = normalizedText.match(/(?:total|amount\s*due|grand\s*total)\s*[:\$\s]*([\d,]+\.\d{2})/);
-    totalAmount = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : null;
-  }
-
-  // Basic fallback summary text if AI doesn't run
-  const fallbackSummary = documentType === 'resume' 
-    ? `A candidate profile for ${primaryEntity} with skills in: ${skillsExtracted.slice(0, 4).join(', ')}.`
-    : `An invoice document associated with ${primaryEntity}.`;
-
-  return {
-    document_type: documentType,
-    confidence_score: confidenceScore,
-    primary_entity: primaryEntity,
-    date: '2026-09-23',
-    financials: {
-      total_amount: totalAmount,
-      currency: currencyDetected,
-      tax_amount: totalAmount ? parseFloat((totalAmount * 0.08).toFixed(2)) : null,
-    },
-    extracted_items: documentType === 'invoice' ? invoiceItems : skillsExtracted,
-    raw_summary: fallbackSummary
-  };
-}
-
-/**
- * Entry point for local string parsing execution loops.
- */
-function parseDocument(rawText) {
-  if (!rawText) return null;
-
-  const documentChunks = rawText
-    .split(/(?=\n\s*\d+\.\s+[A-Z][a-z]+)/)
-    .map(chunk => chunk.trim())
-    .filter(chunk => chunk.length > 40);
-
-  if (documentChunks.length <= 1) {
-    return parseSingleChunk(rawText);
-  }
-
-  return documentChunks.map(chunk => parseSingleChunk(chunk));
-}
-
-/**
- * Builds the AI Prompt structure instructing the LLM to compose dynamic summaries.
+ * Fully AI-Driven Document Parser Pipeline.
+ * Leverages structured JSON outputs to extract entities, items, and summaries without regular expressions.
  * 
- * @param {string} rawText 
- * @returns {string}
+ * @param {string} rawText - The raw text extracted from the PDF file.
+ * @return {Promise<Array<Object>>} A clean, guaranteed array of parsed document items.
  */
-function buildAiPrompt(rawText) {
-  // CHANGED: Completely overhauled the prompt context.
-  // Explicitly forbids template loops and forces the AI to write high-value elevator pitches.
-  return `You are a professional document extraction system. Analyze the raw text payload extracted from a PDF document and structure it into a clean, strict JSON array. If multiple independent resumes or invoices are present in the text, generate one JSON object entry per candidate or vendor inside the array block. Do not include markdown wraps or code block syntax.
+async function parseDocument(rawText) {
+  if (!rawText || rawText.trim() === "") return [];
 
-RULES FOR THE "raw_summary" FIELD:
-1. Do NOT use boilerplate template text or code string placeholders like \${primaryEntity} or \${nameValue}.
-2. For Resumes: Synthesize a custom 1-to-2 sentence professional elevator pitch. Synthesize their years of experience, core industry seniority, and standout tech stacks. Example: "A Senior Frontend Engineer with 4+ years of experience specialized in React, TypeScript, and component architecture frameworks."
-3. For Invoices: Summarize what the invoice was issued for, specifying key vendor details and outstanding transactions.
+  // Use your environment's available API key (handles Gemini, OpenRouter, or OpenAI configurations)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+  
+  if (!apiKey) {
+    console.warn("AI API Key missing. Falling back to an empty structural array context.");
+    return [];
+  }
 
-Target Output JSON Format Architecture:
+  // Define the strict prompt and target schema interface instructions for the LLM
+  const promptBody = {
+    model: "gemini-2.5-flash", // Bolt.new's preferred fast model. Swap to "gpt-4o-mini" if using OpenAI hooks.
+    messages: [
+      {
+        role: "user",
+        content: `You are an advanced data extraction engine. Analyze the following unstructured text payload from a PDF. 
+If the text contains multiple independent resumes or invoices, you MUST extract each one as a distinct object inside the final JSON array.
+
+CRITICAL INSTRUCTIONS:
+1. "primary_entity": Extract the exact name of the Job Candidate or the Vendor. Never return arrays or comma-separated match groups.
+2. "extracted_items": For resumes, list all technical skills found. For invoices, list line-item descriptions.
+3. "raw_summary": Write a unique, high-value 1-to-2 sentence summary. Do not use boilerplate templates. For resumes, highlight their core stack and seniority level (e.g., "A Senior Full-Stack Engineer with 5+ years of experience specialized in React and Node.js backend optimization.").
+4. Always return a valid JSON array of objects. Do not wrap the output in markdown code blocks (\`\`\`json).
+
+Target JSON Output Format:
 [
   {
-    "document_type": "invoice" or "resume" or "unknown",
+    "document_type": "resume" or "invoice" or "unknown",
     "confidence_score": 0.0 to 1.0,
-    "primary_entity": "Vendor Name" or "Candidate Name" or null,
-    "date": "YYYY-MM-DD" or null,
+    "primary_entity": "String Name",
+    "date": "YYYY-MM-DD",
     "financials": {
       "total_amount": 0.00 or null,
       "currency": "USD" or "EUR" or null,
       "tax_amount": 0.00 or null
     },
-    "extracted_items": ["item strings" or "skills arrays"],
-    "raw_summary": "Your dynamic custom synthesized summary statement here."
+    "extracted_items": ["item or skill strings"],
+    "raw_summary": "Dynamic custom synthesized elevator pitch string here."
   }
 ]
 
-Raw Text Payload Content:
-${rawText}`;
+Raw Document Text Payload:
+${rawText}`
+      }
+    ],
+    // Enforces strict JSON execution mode at the provider level
+    response_format: { type: "json_object" } 
+  };
+
+  try {
+    // Dispatches the structured inference request straight to the provider pipeline
+    // This example uses the universal fetch interface compatible with Gemini and OpenRouter architectures
+    const endpoint = process.env.GEMINI_API_KEY 
+      ? `https://googleapis.com`
+      : `https://openai.com`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(promptBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`AI API Gateway connection error: ${response.status} - ${errorText}`);
+    }
+
+    const cellPayload = await response.json();
+    let rawJsonString = cellPayload.choices[0].message.content.trim();
+
+    // Clean up potential markdown formatting remnants safely if emitted by the model
+    if (rawJsonString.startsWith("```")) {
+      rawJsonString = rawJsonString.replace(/^```json|```$/g, "").trim();
+    }
+
+    const parsedOutput = JSON.parse(rawJsonString);
+
+    // Standardize data structures back into a true array format for your React client application hooks
+    const finalCollection = Array.isArray(parsedOutput) 
+      ? parsedOutput 
+      : parsedOutput.documents || parsedOutput.records || [parsedOutput];
+
+    return finalCollection;
+
+  } catch (error) {
+    console.error("Critical AI Parsing Layer Failure:", error);
+    // Secure fail-safe configuration block ensures the front-end dashboard UI layout never locks up
+    return [];
+  }
+}
+
+function buildAiPrompt(rawText) {
+  return rawText; // Deprecated by full inline payload incorporation
 }
 
 module.exports = {
