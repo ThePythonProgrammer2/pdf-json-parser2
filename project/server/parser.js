@@ -17,7 +17,6 @@ function hashBuffer(buffer) {
  * @returns {string}
  */
 function buildSummary(text, docType, primaryEntity) {
-  // FIXED: Evaluated variables cleanly using runtime values instead of literal text patterns.
   const nameValue = (primaryEntity && primaryEntity !== 'Unknown Vendor' && primaryEntity !== 'Unknown Candidate') ? primaryEntity : null;
   
   if (docType === 'invoice') {
@@ -123,7 +122,6 @@ const KNOWN_SKILLS = [
 function parseDocument(rawText) {
   const normalizedText = rawText.toLowerCase();
   
-  // Heuristic Classification
   let documentType = 'unknown';
   let confidenceScore = 0.5;
   let primaryEntity = null;
@@ -138,14 +136,11 @@ function parseDocument(rawText) {
     documentType = 'resume';
     confidenceScore = 0.90;
     
-    // FIXED: Corrected regex capture array matching indices. 
-    // Capturing item elements explicitly via index [1] and [2] prevents the raw object array from flat-stringing with default commas.
     const cleanTextStart = rawText.trim();
     const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
     primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
   }
 
-  // Build the extracted structures matching your marketplace specification model
   const currencyDetected = detectCurrency(rawText);
   const invoiceItems = documentType === 'invoice' ? extractInvoiceItems(rawText) : [];
   
@@ -159,7 +154,6 @@ function parseDocument(rawText) {
     }
   }
 
-  // Attempt to isolate financial totals if tracking invoices
   let totalAmount = null;
   if (documentType === 'invoice') {
     const totalMatch = normalizedText.match(/(?:total|amount\s*due|grand\s*total)\s*[:\$\s]*([\d,]+\.\d{2})/);
@@ -189,7 +183,13 @@ function parseDocument(rawText) {
  * @returns {string}
  */
 function buildAiPrompt(rawText) {
+  // FIXED: Explicitly changed the prompt instructions. 
+  // Removed code pseudo-syntax "\${primaryEntity}" from the format definition.
+  // Added an explicit command instructing the AI to dynamic render the exact name value found.
   return `Analyze the following raw unstructured text extracted from a PDF document. Your task is to output a clean, strict JSON object following the format below. Do not include any markdown headers or explanations.
+
+CRITICAL INSTRUCTION FOR RAW_SUMMARY: 
+Do not output literal placeholders like \${primaryEntity} or variables. Write out the actual name of the vendor or job candidate directly inside the sentence string. Example: "This appears to be a resume for Jane Doe."
 
 Response Shape format:
 {
@@ -203,7 +203,7 @@ Response Shape format:
     "tax_amount": 0.00 or null
   },
   "extracted_items": ["item description strings" or "skills array listings"],
-  "raw_summary": "A clean 2-sentence summary of the document."
+  "raw_summary": "A clean 2-sentence summary of the document explicitly naming the candidate or vendor."
 }
 
 Raw Text Content:
