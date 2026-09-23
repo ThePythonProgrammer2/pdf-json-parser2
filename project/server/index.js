@@ -1,50 +1,44 @@
+// server/index.js
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer');
-const { parsePdfToJson } = require('./parser');
+const path = require('path');
+
 const applySecurity = require('./security');
 const errorHandler = require('./middleware/errorHandler');
+const { parsePdfToJson } = require('./parser');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-// Configure File Upload via Multer (In-memory storage)
-const upload = multer({
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter(req, file, cb) {
-    if (!file.originalname.match(/\.(pdf)$/i)) {
-      return cb(new Error('Only PDF files are allowed!'), false);
-    }
-    cb(null, true);
-  }
-});
-
-// Middleware
+// 1. Security & Core Middleware
+applySecurity(app);
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
-applySecurity(app);
+app.use(express.urlencoded({ extended: true }));
 
-// API Endpoints
-app.post('/api/parse', upload.single('file'), async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: true, message: 'Please upload a PDF file.' });
-    }
+// 2. Serve Static Frontend Files
+app.use(express.static(path.join(__dirname, '../public')));
 
-    const result = await parsePdfToJson(req.file.buffer);
-    res.status(200).json({ success: true, data: result });
-  } catch (error) {
-    next(error);
-  }
+// 3. Health Check Route
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Error Handling Middleware
+// 4. Global Error Handler
 app.use(errorHandler);
 
-if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// 5. Single Listener Execution
+if (require.main === module || process.env.NODE_ENV !== 'test') {
+  const server = app.listen(PORT, () => {
+    console.log(`Server successfully listening on port ${PORT}`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Error] Port ${PORT} is already in use. Ensure no duplicate listen calls exist.`);
+    } else {
+      console.error('[Error] Server encountered an unexpected issue:', err);
+    }
   });
 }
 
