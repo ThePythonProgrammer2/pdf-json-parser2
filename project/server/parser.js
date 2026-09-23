@@ -1,33 +1,46 @@
+// server/parser.js
 const pdfParse = require('pdf-parse');
 
 /**
- * Parses PDF buffer into structured JSON output
- * @param {Buffer} dataBuffer 
- * @returns {Promise<Object>}
+ * Extracts text and metadata from a PDF file buffer.
+ * @param {Buffer} dataBuffer - The PDF file in memory
+ * @returns {Promise<Object>} Formatted JSON payload containing text and structure
  */
 async function parsePdfToJson(dataBuffer) {
   if (!dataBuffer || !(dataBuffer instanceof Buffer)) {
-    throw new Error('Invalid input: Expected a valid file buffer.');
+    throw new Error('Invalid payload: Expected a valid PDF file buffer.');
   }
 
-  const data = await pdfParse(dataBuffer);
+  try {
+    // Parse PDF buffer
+    const parsedData = await pdfParse(dataBuffer);
 
-  // Clean and split text into structural elements
-  const lines = data.text
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0);
+    // Clean and normalize extracted text
+    const rawText = parsedData.text || '';
+    const lines = rawText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
 
-  return {
-    metadata: {
-      totalPages: data.numpages,
-      info: data.info || {},
-      version: data.version
-    },
-    rawText: data.text,
-    lineCount: lines.length,
-    lines: lines
-  };
+    return {
+      metadata: {
+        totalPages: parsedData.numpages || 0,
+        info: parsedData.info || {},
+        version: parsedData.version || 'unknown'
+      },
+      summary: {
+        totalCharacters: rawText.length,
+        totalLines: lines.length
+      },
+      content: {
+        rawText: rawText,
+        lines: lines
+      }
+    };
+  } catch (error) {
+    console.error('[PDF Parser Error]:', error.message);
+    throw new Error(`Failed to parse PDF document: ${error.message}`);
+  }
 }
 
 module.exports = { parsePdfToJson };
