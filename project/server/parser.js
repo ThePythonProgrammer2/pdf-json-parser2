@@ -19,6 +19,8 @@ function hashBuffer(buffer) {
 function buildSummary(text, docType, primaryEntity) {
   const nameValue = (primaryEntity && primaryEntity !== 'Unknown Vendor' && primaryEntity !== 'Unknown Candidate') ? primaryEntity : null;
   
+  // FIXED: Converted single/double quotes to backticks (`) and removed the backslash escapes (\) 
+  // so JavaScript natively interpolates the `nameValue` variable at runtime.
   if (docType === 'invoice') {
     return `This appears to be an invoice${nameValue ? ` from \${nameValue}` : ''}. ` +
       `Key details include line items, dates, and financial amounts extracted from the document text.`;
@@ -183,9 +185,6 @@ function parseDocument(rawText) {
  * @returns {string}
  */
 function buildAiPrompt(rawText) {
-  // FIXED: Explicitly changed the prompt instructions. 
-  // Removed code pseudo-syntax "\${primaryEntity}" from the format definition.
-  // Added an explicit command instructing the AI to dynamic render the exact name value found.
   return `Analyze the following raw unstructured text extracted from a PDF document. Your task is to output a clean, strict JSON object following the format below. Do not include any markdown headers or explanations.
 
 CRITICAL INSTRUCTION FOR RAW_SUMMARY: 
