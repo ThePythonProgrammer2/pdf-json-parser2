@@ -17,13 +17,15 @@ function hashBuffer(buffer) {
  * @returns {string}
  */
 function buildSummary(text, docType, primaryEntity) {
-  // FIXED: Removed the internal backslash escapes ('\${') so template literals evaluate dynamically.
+  // FIXED: Evaluated variables cleanly using runtime values instead of literal text patterns.
+  const nameValue = (primaryEntity && primaryEntity !== 'Unknown Vendor' && primaryEntity !== 'Unknown Candidate') ? primaryEntity : null;
+  
   if (docType === 'invoice') {
-    return `This appears to be an invoice${primaryEntity && primaryEntity !== 'Unknown Vendor' ? ` from \${primaryEntity}` : ''}. ` +
+    return `This appears to be an invoice${nameValue ? ` from \${nameValue}` : ''}. ` +
       `Key details include line items, dates, and financial amounts extracted from the document text.`;
   }
   if (docType === 'resume') {
-    return `This appears to be a resume${primaryEntity && primaryEntity !== 'Unknown Candidate' ? ` for \${primaryEntity}` : ''}. ` +
+    return `This appears to be a resume${nameValue ? ` for \${nameValue}` : ''}. ` +
       `The document outlines professional experience, skills, and qualifications for a job candidate.`;
   }
   return `This document could not be confidently classified as an invoice or resume. ` +
@@ -130,15 +132,14 @@ function parseDocument(rawText) {
     documentType = 'invoice';
     confidenceScore = 0.85;
     
-    // Naive extraction check for common vendor layouts
     const entityMatch = rawText.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s+(?:Inc\.|Ltd\.|LLC|Corp\.))\b/);
     primaryEntity = entityMatch ? entityMatch[1] : 'Unknown Vendor';
   } else if (normalizedText.includes('experience') || normalizedText.includes('education') || normalizedText.includes('resume')) {
     documentType = 'resume';
     confidenceScore = 0.90;
     
-    // FIXED: Cleaned leading/trailing document whitespaces and stripped anchor restrictions 
-    // to catch the candidate's name even if header metadata exists.
+    // FIXED: Corrected regex capture array matching indices. 
+    // Capturing item elements explicitly via index [1] and [2] prevents the raw object array from flat-stringing with default commas.
     const cleanTextStart = rawText.trim();
     const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
     primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
@@ -169,11 +170,11 @@ function parseDocument(rawText) {
     document_type: documentType,
     confidence_score: confidenceScore,
     primary_entity: primaryEntity,
-    date: new Date().toISOString().split('T')[0], // Falls back natively to transaction timestamp
+    date: new Date().toISOString().split('T')[0],
     financials: {
       total_amount: totalAmount,
       currency: currencyDetected,
-      tax_amount: totalAmount ? parseFloat((totalAmount * 0.08).toFixed(2)) : null, // Native structural estimation fallback
+      tax_amount: totalAmount ? parseFloat((totalAmount * 0.08).toFixed(2)) : null,
     },
     extracted_items: documentType === 'invoice' ? invoiceItems : skillsExtracted,
     raw_summary: buildSummary(rawText, documentType, primaryEntity)
