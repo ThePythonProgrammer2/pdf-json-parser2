@@ -11,10 +11,9 @@ function hashBuffer(buffer) {
 
 /**
  * Fully AI-Driven Document Parser Pipeline.
- * Fixed to conform to strict JSON Object API constraints.
  * 
  * @param {string} rawText - The raw text extracted from the PDF file.
- * @return {Promise<Array<Object>>} A clean, guaranteed array of parsed document items.
+ * @return {Promise<Array<Object>>} A clean array of parsed document items.
  */
 async function parseDocument(rawText) {
   if (!rawText || rawText.trim() === "") return [];
@@ -26,8 +25,6 @@ async function parseDocument(rawText) {
     return [];
   }
 
-  // FIXED: Adjusted the target schema shape to be a top-level OBJECT containing a "candidates" array key.
-  // This satisfies the strict response_format: { type: "json_object" } constraint perfectly.
   const promptBody = {
     model: "gemini-2.5-flash", 
     messages: [
@@ -67,7 +64,7 @@ Target JSON Output Format:
 
   try {
     const endpoint = process.env.GEMINI_API_KEY 
-      ? `https://googleapis.com`
+      ? `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
       : `https://openai.com`;
 
     const response = await fetch(endpoint, {
@@ -85,7 +82,13 @@ Target JSON Output Format:
     }
 
     const cellPayload = await response.json();
-    let rawJsonString = cellPayload.choices[0].message.content.trim(); // FIXED: Corrected typical OpenAI choices array access placement index
+    
+    // FIXED: Corrected the object path accessor loop to explicitly target index 0.
+    if (!cellPayload.choices || !cellPayload.choices[0] || !cellPayload.choices[0].message) {
+      throw new Error("Malformed API gateway payload response mapping structure.");
+    }
+    
+    let rawJsonString = cellPayload.choices[0].message.content.trim();
 
     if (rawJsonString.startsWith("```")) {
       rawJsonString = rawJsonString.replace(/^```json|```$/g, "").trim();
@@ -93,8 +96,6 @@ Target JSON Output Format:
 
     const parsedOutput = JSON.parse(rawJsonString);
 
-    // FIXED: Safely extract the inner candidates array structure so your application code 
-    // down stream receives the clean collection list it expects.
     if (parsedOutput && parsedOutput.candidates && Array.isArray(parsedOutput.candidates)) {
       return parsedOutput.candidates;
     }
