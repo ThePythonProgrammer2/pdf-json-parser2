@@ -1,414 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF Document Parser</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF to JSON Parser</title>
   <style>
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    .dropzone-dragover {
-      border-color: #2563eb !important;
-      background-color: #eff6ff !important;
-      transform: scale(1.01);
-    }
-    .json-key { color: #2563eb; }
-    .json-string { color: #059669; }
-    .json-number { color: #d97706; }
-    .json-null { color: #9ca3af; }
-    .json-boolean { color: #db2777; }
-    .fade-in {
-      animation: fadeIn 0.4s ease-in;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .spinner {
-      border: 3px solid #e5e7eb;
-      border-top: 3px solid #2563eb;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .pulse-dot {
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .copy-btn {
-      transition: all 0.2s ease;
-    }
-    .copy-btn:hover {
-      transform: translateY(-1px);
-    }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .card { border: 1px solid #ccc; padding: 2rem; border-radius: 8px; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 400px; }
+    button { background: #0066cc; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #0052a3; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-
-  <!-- Header -->
-  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        </div>
-        <div>
-          <h1 class="text-lg font-bold text-gray-900">PDF Document Parser</h1>
-          <p class="text-xs text-gray-500">Extract structured data from invoices &amp; resumes</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></span>
-        <span class="text-xs text-gray-500 hidden sm:inline">Server Online</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main -->
-  <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-
-    <!-- Hero -->
-    <div class="text-center mb-10">
-      <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">Parse Your PDF Documents</h2>
-      <p class="text-gray-500 max-w-2xl mx-auto">
-        Upload an invoice or resume PDF and get back structured JSON data —
-        document type, entity name, dates, financials, and line items — instantly.
-      </p>
-    </div>
-
-    <div class="grid lg:grid-cols-2 gap-8">
-
-      <!-- Upload Card -->
-      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <h3 class="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-          </svg>
-          Upload Document
-        </h3>
-
-        <!-- Dropzone -->
-        <div id="dropzone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/50">
-          <div id="dropzone-prompt">
-            <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-            </svg>
-            <p class="text-gray-600 font-medium">Drag &amp; drop your PDF here</p>
-            <p class="text-sm text-gray-400 mt-1">or click to browse — max 5MB</p>
-          </div>
-          <div id="dropzone-file" class="hidden">
-            <svg class="w-10 h-10 text-blue-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <p id="file-name" class="text-gray-900 font-medium truncate"></p>
-            <p id="file-size" class="text-sm text-gray-400 mt-1"></p>
-            <p class="text-xs text-blue-600 mt-2 underline cursor-pointer">Click to change file</p>
-          </div>
-        </div>
-        <input type="file" id="file-input" accept="application/pdf" class="hidden" />
-
-        <!-- Parse Button -->
-        <button id="parse-btn" disabled
-          class="w-full mt-4 bg-blue-600 text-white font-semibold py-3 rounded-xl transition-all duration-200 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          Parse Document
-        </button>
-
-        <!-- Error Message -->
-        <div id="error-msg" class="hidden mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 fade-in"></div>
-
-        <!-- Loading -->
-        <div id="loading" class="hidden mt-6 text-center fade-in">
-          <div class="spinner mx-auto mb-3"></div>
-          <p class="text-sm text-gray-500">Parsing document...</p>
-        </div>
-      </div>
-
-      <!-- Results Card -->
-      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
-            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-            </svg>
-            Structured Output
-          </h3>
-          <button id="copy-btn" class="copy-btn hidden bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <span id="copy-label">Copy JSON</span>
-          </button>
-        </div>
-
-        <!-- Placeholder -->
-        <div id="result-placeholder" class="flex flex-col items-center justify-center h-64 text-center">
-          <svg class="w-12 h-12 text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-          <p class="text-gray-400 text-sm">Parsed JSON will appear here</p>
-        </div>
-
-        <!-- Result -->
-        <div id="result-content" class="hidden fade-in">
-          <!-- Quick stats -->
-          <div id="quick-stats" class="grid grid-cols-2 gap-3 mb-4"></div>
-          <!-- JSON block -->
-          <pre class="bg-gray-900 rounded-xl p-4 overflow-auto max-h-96 text-sm leading-relaxed"><code id="json-output"></code></pre>
-        </div>
-      </div>
-    </div>
-
-    <!-- Features -->
-    <div class="mt-12 grid sm:grid-cols-3 gap-4">
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <div class="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <h4 class="font-semibold text-gray-900 text-sm">Smart Detection</h4>
-        <p class="text-xs text-gray-500 mt-1">Automatically identifies invoices and resumes with confidence scoring.</p>
-      </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <div class="w-9 h-9 bg-green-50 rounded-lg flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </div>
-        <h4 class="font-semibold text-gray-900 text-sm">In-Memory Cache</h4>
-        <p class="text-xs text-gray-500 mt-1">Identical uploads return instantly with content-hash based caching.</p>
-      </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <div class="w-9 h-9 bg-amber-50 rounded-lg flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <h4 class="font-semibold text-gray-900 text-sm">Safe &amp; Reliable</h4>
-        <p class="text-xs text-gray-500 mt-1">Error-proof parsing that never crashes — even on corrupted files.</p>
-      </div>
-    </div>
-  </main>
-
-  <footer class="border-t border-gray-200 mt-12">
-    <div class="max-w-5xl mx-auto px-6 py-6 text-center text-sm text-gray-400">
-      PDF Document Parser — Express + Multer + pdf-parse
-    </div>
-  </footer>
+<body>
+  <div class="card">
+    <h2>Upload PDF for Parsing</h2>
+    <form id="uploadForm">
+      <input type="file" id="pdfFile" accept="application/pdf" required />
+      <button type="submit">Convert to JSON</button>
+    </form>
+    <h3>Result:</h3>
+    <pre id="output">Upload a file to see JSON output...</pre>
+  </div>
 
   <script>
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('file-input');
-    const dropzonePrompt = document.getElementById('dropzone-prompt');
-    const dropzoneFile = document.getElementById('dropzone-file');
-    const fileName = document.getElementById('file-name');
-    const fileSize = document.getElementById('file-size');
-    const parseBtn = document.getElementById('parse-btn');
-    const loading = document.getElementById('loading');
-    const errorMsg = document.getElementById('error-msg');
-    const resultPlaceholder = document.getElementById('result-placeholder');
-    const resultContent = document.getElementById('result-content');
-    const jsonOutput = document.getElementById('json-output');
-    const copyBtn = document.getElementById('copy-btn');
-    const copyLabel = document.getElementById('copy-label');
-    const quickStats = document.getElementById('quick-stats');
-
-    let selectedFile = null;
-
-    // --- Dropzone interactions ---
-    dropzone.addEventListener('click', () => fileInput.click());
-
-    dropzone.addEventListener('dragover', (e) => {
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      dropzone.classList.add('dropzone-dragover');
-    });
+      const fileInput = document.getElementById('pdfFile');
+      const output = document.getElementById('output');
 
-    dropzone.addEventListener('dragleave', () => {
-      dropzone.classList.remove('dropzone-dragover');
-    });
-
-    dropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('dropzone-dragover');
-      const file = e.dataTransfer.files[0];
-      if (file) handleFileSelect(file);
-    });
-
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) handleFileSelect(file);
-    });
-
-    function handleFileSelect(file) {
-      hideError();
-      if (file.type !== 'application/pdf') {
-        showError('Please select a PDF file.');
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        showError('File is too large. Maximum allowed size is 5MB.');
-        return;
-      }
-      selectedFile = file;
-      fileName.textContent = file.name;
-      fileSize.textContent = formatFileSize(file.size);
-      dropzonePrompt.classList.add('hidden');
-      dropzoneFile.classList.remove('hidden');
-      parseBtn.disabled = false;
-      // Reset previous results
-      resultContent.classList.add('hidden');
-      resultPlaceholder.classList.remove('hidden');
-      copyBtn.classList.add('hidden');
-    }
-
-    function formatFileSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-    }
-
-    function showError(msg) {
-      errorMsg.textContent = msg;
-      errorMsg.classList.remove('hidden');
-    }
-
-    function hideError() {
-      errorMsg.classList.add('hidden');
-    }
-
-    // --- Parse button ---
-    parseBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
-
-      hideError();
-      parseBtn.disabled = true;
-      parseBtn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;"></div> Parsing...';
-      loading.classList.remove('hidden');
-      resultContent.classList.add('hidden');
-      resultPlaceholder.classList.add('hidden');
-      copyBtn.classList.add('hidden');
+      if (!fileInput.files[0]) return;
 
       const formData = new FormData();
-      formData.append('document', selectedFile);
+      formData.append('file', fileInput.files[0]);
+
+      output.textContent = 'Parsing...';
 
       try {
-        const response = await fetch('/api/v1/parse-document', {
+        const response = await fetch('/api/parse', {
           method: 'POST',
-          body: formData,
+          body: formData
         });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          const msg = (data && data.error && data.error.message) || (data && data.error) || 'Failed to parse document.';
-          showError(msg);
-          resultPlaceholder.classList.remove('hidden');
-          return;
-        }
-
-        displayResult(data);
+        const result = await response.json();
+        output.textContent = JSON.stringify(result, null, 2);
       } catch (err) {
-        showError('Network error: could not reach the server. Make sure it is running.');
-        resultPlaceholder.classList.remove('hidden');
-      } finally {
-        loading.classList.add('hidden');
-        parseBtn.disabled = false;
-        parseBtn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> Parse Document`;
+        output.textContent = 'Error parsing PDF file.';
       }
-    });
-
-    // --- Display result ---
-    function displayResult(data) {
-      const displayData = { ...data };
-      delete displayData.cached;
-
-      // Quick stats
-      const typeColor = {
-        invoice: 'bg-blue-50 text-blue-700 border-blue-200',
-        resume: 'bg-green-50 text-green-700 border-green-200',
-        unknown: 'bg-gray-100 text-gray-600 border-gray-200',
-      };
-      const typeClass = typeColor[data.document_type] || typeColor.unknown;
-
-      quickStats.innerHTML = `
-        <div class="${typeClass} border rounded-lg p-3 text-center">
-          <p class="text-xs font-medium opacity-70 uppercase tracking-wide">Type</p>
-          <p class="font-bold capitalize mt-1">${escapeHtml(data.document_type)}</p>
-        </div>
-        <div class="bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg p-3 text-center">
-          <p class="text-xs font-medium opacity-70 uppercase tracking-wide">Confidence</p>
-          <p class="font-bold mt-1">${(data.confidence_score * 100).toFixed(0)}%</p>
-        </div>
-        ${data.primary_entity ? `
-        <div class="bg-amber-50 border border-amber-200 text-amber-700 rounded-lg p-3 text-center col-span-2">
-          <p class="text-xs font-medium opacity-70 uppercase tracking-wide">Primary Entity</p>
-          <p class="font-bold mt-1 truncate">${escapeHtml(data.primary_entity)}</p>
-        </div>` : ''}
-        ${data.cached ? `<div class="col-span-2 text-center"><span class="inline-block text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-3 py-1">Returned from cache</span></div>` : ''}
-      `;
-
-      // Syntax-highlighted JSON
-      jsonOutput.innerHTML = syntaxHighlight(JSON.stringify(displayData, null, 2));
-      resultContent.classList.remove('hidden');
-      copyBtn.classList.remove('hidden');
-    }
-
-    function syntaxHighlight(json) {
-      json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return json.replace(
-        /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+\.?\d*)/g,
-        (match) => {
-          let cls = 'json-number';
-          if (/^"/.test(match)) {
-            cls = /:$/.test(match) ? 'json-key' : 'json-string';
-          } else if (/true|false/.test(match)) {
-            cls = 'json-boolean';
-          } else if (/null/.test(match)) {
-            cls = 'json-null';
-          }
-          return '<span class="' + cls + '">' + match + '</span>';
-        }
-      );
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    // --- Copy JSON ---
-    copyBtn.addEventListener('click', () => {
-      const text = jsonOutput.textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        copyLabel.textContent = 'Copied!';
-        setTimeout(() => { copyLabel.textContent = 'Copy JSON'; }, 2000);
-      }).catch(() => {
-        // Fallback
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        copyLabel.textContent = 'Copied!';
-        setTimeout(() => { copyLabel.textContent = 'Copy JSON'; }, 2000);
-      });
     });
   </script>
 </body>
