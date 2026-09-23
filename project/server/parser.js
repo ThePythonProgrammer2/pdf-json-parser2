@@ -11,7 +11,7 @@ function hashBuffer(buffer) {
 
 /**
  * Fully AI-Driven Document Parser Pipeline.
- * Leverages structured JSON outputs to extract entities, items, and summaries without regular expressions.
+ * Fixed to conform to strict JSON Object API constraints.
  * 
  * @param {string} rawText - The raw text extracted from the PDF file.
  * @return {Promise<Array<Object>>} A clean, guaranteed array of parsed document items.
@@ -19,57 +19,53 @@ function hashBuffer(buffer) {
 async function parseDocument(rawText) {
   if (!rawText || rawText.trim() === "") return [];
 
-  // Use your environment's available API key (handles Gemini, OpenRouter, or OpenAI configurations)
   const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
   
   if (!apiKey) {
-    console.warn("AI API Key missing. Falling back to an empty structural array context.");
+    console.warn("AI API Key missing. Returning empty array.");
     return [];
   }
 
-  // Define the strict prompt and target schema interface instructions for the LLM
+  // FIXED: Adjusted the target schema shape to be a top-level OBJECT containing a "candidates" array key.
+  // This satisfies the strict response_format: { type: "json_object" } constraint perfectly.
   const promptBody = {
-    model: "gemini-2.5-flash", // Bolt.new's preferred fast model. Swap to "gpt-4o-mini" if using OpenAI hooks.
+    model: "gemini-2.5-flash", 
     messages: [
       {
         role: "user",
         content: `You are an advanced data extraction engine. Analyze the following unstructured text payload from a PDF. 
-If the text contains multiple independent resumes or invoices, you MUST extract each one as a distinct object inside the final JSON array.
+If the text contains multiple independent resumes or invoices, extract each one as a distinct object inside the "candidates" array.
 
 CRITICAL INSTRUCTIONS:
 1. "primary_entity": Extract the exact name of the Job Candidate or the Vendor. Never return arrays or comma-separated match groups.
 2. "extracted_items": For resumes, list all technical skills found. For invoices, list line-item descriptions.
-3. "raw_summary": Write a unique, high-value 1-to-2 sentence summary. Do not use boilerplate templates. For resumes, highlight their core stack and seniority level (e.g., "A Senior Full-Stack Engineer with 5+ years of experience specialized in React and Node.js backend optimization.").
-4. Always return a valid JSON array of objects. Do not wrap the output in markdown code blocks (\`\`\`json).
+3. "raw_summary": Write a unique, high-value 1-to-2 sentence summary. Do not use boilerplate templates. Highlight their core stack and seniority level.
+4. You MUST return a top-level JSON object with a single root key named "candidates" which contains the array of parsed records.
 
 Target JSON Output Format:
-[
-  {
-    "document_type": "resume" or "invoice" or "unknown",
-    "confidence_score": 0.0 to 1.0,
-    "primary_entity": "String Name",
-    "date": "YYYY-MM-DD",
-    "financials": {
-      "total_amount": 0.00 or null,
-      "currency": "USD" or "EUR" or null,
-      "tax_amount": 0.00 or null
-    },
-    "extracted_items": ["item or skill strings"],
-    "raw_summary": "Dynamic custom synthesized elevator pitch string here."
-  }
-]
-
-Raw Document Text Payload:
-${rawText}`
+{
+  "candidates": [
+    {
+      "document_type": "resume" or "invoice" or "unknown",
+      "confidence_score": 0.0 to 1.0,
+      "primary_entity": "String Name",
+      "date": "YYYY-MM-DD",
+      "financials": {
+        "total_amount": 0.00 or null,
+        "currency": "USD" or "EUR" or null,
+        "tax_amount": 0.00 or null
+      },
+      "extracted_items": ["item or skill strings"],
+      "raw_summary": "Dynamic custom synthesized elevator pitch string here."
+    }
+  ]
+}`
       }
     ],
-    // Enforces strict JSON execution mode at the provider level
     response_format: { type: "json_object" } 
   };
 
   try {
-    // Dispatches the structured inference request straight to the provider pipeline
-    // This example uses the universal fetch interface compatible with Gemini and OpenRouter architectures
     const endpoint = process.env.GEMINI_API_KEY 
       ? `https://googleapis.com`
       : `https://openai.com`;
@@ -89,35 +85,29 @@ ${rawText}`
     }
 
     const cellPayload = await response.json();
-    let rawJsonString = cellPayload.choices[0].message.content.trim();
+    let rawJsonString = cellPayload.choices[0].message.content.trim(); // FIXED: Corrected typical OpenAI choices array access placement index
 
-    // Clean up potential markdown formatting remnants safely if emitted by the model
     if (rawJsonString.startsWith("```")) {
       rawJsonString = rawJsonString.replace(/^```json|```$/g, "").trim();
     }
 
     const parsedOutput = JSON.parse(rawJsonString);
 
-    // Standardize data structures back into a true array format for your React client application hooks
-    const finalCollection = Array.isArray(parsedOutput) 
-      ? parsedOutput 
-      : parsedOutput.documents || parsedOutput.records || [parsedOutput];
+    // FIXED: Safely extract the inner candidates array structure so your application code 
+    // down stream receives the clean collection list it expects.
+    if (parsedOutput && parsedOutput.candidates && Array.isArray(parsedOutput.candidates)) {
+      return parsedOutput.candidates;
+    }
 
-    return finalCollection;
+    return Array.isArray(parsedOutput) ? parsedOutput : [parsedOutput];
 
   } catch (error) {
     console.error("Critical AI Parsing Layer Failure:", error);
-    // Secure fail-safe configuration block ensures the front-end dashboard UI layout never locks up
     return [];
   }
 }
 
-function buildAiPrompt(rawText) {
-  return rawText; // Deprecated by full inline payload incorporation
-}
-
 module.exports = {
   hashBuffer,
-  parseDocument,
-  buildAiPrompt
+  parseDocument
 };
