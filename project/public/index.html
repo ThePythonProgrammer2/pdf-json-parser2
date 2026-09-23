@@ -64,7 +64,7 @@
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
 
-    /* Label wrapper handles clicking natively without JS glitches */
+    /* Un-nested label prevents event loops and broken file triggers */
     .drop-zone {
       display: block;
       border: 2px dashed var(--border-color);
@@ -86,8 +86,16 @@
       font-size: 0.9rem;
     }
 
-    input[type="file"] {
-      display: none;
+    /* Hidden native file input */
+    .hidden-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
     }
 
     .btn {
@@ -154,7 +162,7 @@
     .status {
       font-weight: 600;
       font-size: 0.9rem;
-      margin-top: 0.5rem;
+      margin-top: 0.75rem;
     }
 
     .status.error { color: #dc2626; }
@@ -171,13 +179,16 @@
 
     <div class="card">
       <form id="uploadForm">
-        <!-- Using label[for="fileInput"] gives native, bug-free click handling -->
+        <!-- Separate file input outside label -->
+        <input type="file" id="fileInput" class="hidden-input" accept="application/pdf,.pdf" />
+        
+        <!-- Clean label target matching input ID -->
         <label for="fileInput" class="drop-zone" id="dropZone">
           <strong>Drag & drop your PDF file here</strong>
-          <p>or click anywhere in this box to browse files (Max size: 10MB)</p>
-          <input type="file" id="fileInput" accept="application/pdf" />
-          <p id="fileName" style="font-weight: 600; color: var(--accent-color); margin-top: 0.75rem;"></p>
+          <p>or click here to browse files from your computer</p>
+          <div id="fileName" style="font-weight: 600; color: var(--accent-color); margin-top: 0.75rem;"></div>
         </label>
+
         <button type="submit" class="btn" id="submitBtn" disabled>Parse PDF</button>
       </form>
       <div id="statusMessage" class="status"></div>
@@ -202,60 +213,79 @@
     const statusMessage = document.getElementById('statusMessage');
     const copyBtn = document.getElementById('copyBtn');
 
-    // Drag and Drop Visual Feedback
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('dragover');
+    let selectedFile = null;
+
+    // File Selection Change Event
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        processSelectedFile(e.target.files[0]);
+      }
     });
 
-    ['dragleave', 'dragend'].forEach(type => {
-      dropZone.addEventListener(type, () => dropZone.classList.remove('dragover'));
+    // Drag and Drop Events
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('dragover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('dragover');
+      }, false);
     });
 
     dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
-      if (e.dataTransfer.files.length) {
-        fileInput.files = e.dataTransfer.files;
-        handleFileSelected();
+      const dt = e.dataTransfer;
+      if (dt.files && dt.files.length > 0) {
+        processSelectedFile(dt.files[0]);
       }
     });
 
-    // Native file change handler
-    fileInput.addEventListener('change', handleFileSelected);
+    // File validation and UI update
+    function processSelectedFile(file) {
+      if (!file) return;
 
-    function handleFileSelected() {
-      const file = fileInput.files[0];
-      if (file) {
-        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-          showStatus('Please select a valid PDF file.', 'error');
-          submitBtn.disabled = true;
-          return;
-        }
-        fileNameDisplay.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-        submitBtn.disabled = false;
-        showStatus('', '');
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        showStatus('Invalid file type. Please select a valid PDF file.', 'error');
+        selectedFile = null;
+        submitBtn.disabled = true;
+        fileNameDisplay.textContent = '';
+        return;
       }
+
+      selectedFile = file;
+      fileNameDisplay.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+      submitBtn.disabled = false;
+      showStatus('', '');
     }
 
     function showStatus(msg, type) {
       statusMessage.textContent = msg;
-      statusMessage.className = `status ${type}`;
+      statusMessage.className = `status ${type || ''}`;
     }
 
-    // Submit API Request
+    // Form submission via Fetch API
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const file = fileInput.files[0];
-      if (!file) return;
+      
+      if (!selectedFile) {
+        showStatus('No file selected. Please choose a PDF file.', 'error');
+        return;
+      }
 
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', selectedFile);
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Parsing...';
-      showStatus('Uploading and parsing document...', '');
-      jsonOutput.textContent = '// Parsing in progress, please wait...';
+      showStatus('Uploading and processing document...', '');
+      jsonOutput.textContent = '// Processing PDF, please wait...';
 
       try {
         const response = await fetch('/api/parse', {
@@ -266,22 +296,24 @@
         const result = await response.json();
 
         if (!response.ok || result.error) {
-          throw new Error(result.message || 'Failed to parse PDF.');
+          throw new Error(result.message || `Server responded with status ${response.status}`);
         }
 
         jsonOutput.textContent = JSON.stringify(result, null, 2);
         showStatus('PDF successfully parsed!', 'success');
       } catch (err) {
-        jsonOutput.textContent = `// Error:\n${err.message}`;
-        showStatus(err.message, 'error');
+        console.error('Parsing error:', err);
+        jsonOutput.textContent = `// Parsing Error:\n${err.message}`;
+        showStatus(`Error: ${err.message}`, 'error');
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Parse PDF';
       }
     });
 
-    // Copy to Clipboard Action
+    // Copy Output to Clipboard
     copyBtn.addEventListener('click', () => {
+      if (!jsonOutput.textContent) return;
       navigator.clipboard.writeText(jsonOutput.textContent).then(() => {
         const originalText = copyBtn.textContent;
         copyBtn.textContent = 'Copied!';
