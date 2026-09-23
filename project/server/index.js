@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 const { parseDocument } = require('./parser');
 
 // Initialize the Express app instance securely
@@ -9,70 +11,67 @@ const PORT = process.env.PORT || 3001;
 
 // Global Middleware Configuration Settings
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Standardize memory limits for nested uploads
+app.use(express.json({ limit: '50mb' }));
 
-// 1. DUAL-PURPOSE NETWORK ROUTE FIX: Intercept hardcoded frontend localhost calls natively!
-// If your compiled frontend assets execute an absolute network call targeting localhost:3001,
-// the server intercepts its own loop block right here and executes the parsing route pipeline safely.
-const handleParsingRequest = (req, res) => {
+// Configure Multer to intercept raw file memory buffers safely
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // Enforces the front-end 5MB file restriction limit
+});
+
+// 1. Tell Express where static web files live
+app.use(express.static(path.join(__dirname, '../public')));
+
+// 2. FIXED ENDPOINT & TYPE: Matches the frontend '/api/v1/parse-document' route exactly
+app.post('/api/v1/parse-document', upload.single('document'), async (req, res) => {
   try {
-    const { text } = req.body;
-    
-    if (!text) {
+    // Structural guard check: Ensure an actual file was uploaded
+    if (!req.file) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Bad Request: Missing raw text payload parameters.' 
+        error: 'Bad Request: No file uploaded under field key context "document".' 
       });
     }
 
-    // Process using your standardized synchronous parsing script file
-    const result = parseDocument(text);
+    // A. Parse the raw binary PDF file buffer into unstructured string text
+    const pdfData = await pdfParse(req.file.buffer);
+    const extractedRawText = pdfData.text;
+
+    if (!extractedRawText || extractedRawText.trim() === "") {
+      return res.status(422).json({
+        success: false,
+        error: 'Unprocessable Entity: PDF file read successfully but no text content could be extracted.'
+      });
+    }
+
+    // B. Run the text layout through your local parsing compiler pipeline logic script
+    const result = parseDocument(extractedRawText);
+
+    // C. Return the structural data directly to match the front-end display expectations
     return res.status(200).json(result);
 
   } catch (error) {
-    console.error('Server Processing Pipeline Error Context:', error);
+    console.error('Server PDF Processing Failure Engine Log:', error);
     return res.status(500).json({
       success: false,
-      error: 'Internal Server Error encountered during parsing runtime.',
+      error: 'Internal Server Error: Parsing engine encountered an extraction failure.',
       details: error.message
     });
   }
-};
-
-// Map the handler function to both relative routes and absolute local dev routes
-app.post('/api/parse', handleParsingRequest);
-app.post('http://localhost:3001/api/parse', handleParsingRequest); 
-
-// 2. Map static asset assets from all potential bolt.new output directories
-app.use(express.static(path.join(__dirname, '../public')));
-app.use(express.static(path.join(__dirname, '../dist')));
-
-// 3. Fallback Status Ping Endpoint check
-app.get('/api/status', (req, res) => {
-  res.status(200).json({ status: 'online', context: 'Unified secure reverse proxy layer operational.' });
 });
 
-// 4. Catch-all Monolith Router Controller
-app.get('*', (req, res) => {
-  // Check common production folder configurations automatically
-  const publicIndexPath = path.join(__dirname, '../public/index.html');
-  const distIndexPath = path.join(__dirname, '../dist/index.html');
-  
-  if (require('fs').existsSync(publicIndexPath)) {
-    return res.sendFile(publicIndexPath);
-  } else if (require('fs').existsSync(distIndexPath)) {
-    return res.sendFile(distIndexPath);
-  }
+// 3. Status Landing Route check to eliminate browser "Cannot GET /" crash alerts
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
-  // Fallback if index documents aren't built yet
-  res.status(200).json({
-    success: true,
-    engine: 'online',
-    message: 'Parser backend is active. Upload components via API endpoint systems.'
-  });
+// 4. Catch-all fallback routing logic mapping assets cleanly
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Boot listening loop environment
 app.listen(PORT, () => {
-  console.log(`🚀 Unified production reverse-proxy engine active on port ${PORT}`);
+  console.log(`🚀 Production pipeline aligned and listening smoothly on port ${PORT}`);
 });
