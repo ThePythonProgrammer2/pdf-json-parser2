@@ -3,18 +3,102 @@ const pdfParse = require('pdf-parse');
 const { PDFDocument } = require('pdf-lib');
 
 /**
- * Fallback parser that extracts readable ASCII text directly from raw binary streams 
- * when PDF structure headers are completely corrupted or non-standard.
+ * Categorizes a single string line into semantic JSON structures.
+ */
+function classifyLine(line) {
+  const trimmed = line.trim();
+
+  // 1. Email detection
+  if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+    return { type: 'email', value: trimmed };
+  }
+
+  // 2. Phone number detection
+  if (/^(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/.test(trimmed)) {
+    return { type: 'phone', value: trimmed };
+  }
+
+  // 3. Web URL detection
+  if (/^(https?:\/\/)?(www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\/\S*)?$/.test(trimmed)) {
+    return { type: 'url', value: trimmed };
+  }
+
+  // 4. Key-Value pairs (e.g. "Author: John Doe", "Date: 2026-09-23")
+  const kvMatch = trimmed.match(/^([A-Za-z0-9\s_]{2,25}):\s+(.+)$/);
+  if (kvMatch) {
+    return { type: 'key_value', key: kvMatch[1].trim(), value: kvMatch[2].trim() };
+  }
+
+  // 5. Bullet points
+  if (/^[-•*▪➢]\s+/.test(trimmed) || /^\d+[\.\)]\s+/.test(trimmed)) {
+    return { type: 'bullet_point', text: trimmed.replace(/^([-•*▪➢]|\d+[\.\)])\s*/, '') };
+  }
+
+  // 6. Section Headings (Short, uppercase or title case, no ending punctuation)
+  const isShort = trimmed.length > 2 && trimmed.length <= 45;
+  const isAllCaps = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
+  const isTitleCase = /^[A-Z][a-zA-A0-9\s,&-]+$/.test(trimmed) && !/[.?!]$/.test(trimmed);
+
+  if (isShort && (isAllCaps || isTitleCase)) {
+    return { type: 'heading', text: trimmed };
+  }
+
+  // 7. Standard Paragraph
+  return { type: 'paragraph', text: trimmed };
+}
+
+/**
+ * Organizes flattened semantic elements into logical document sections.
+ */
+function buildDocumentOutline(elements) {
+  const sections = [];
+  let currentSection = { title: 'General Content', items: [] };
+
+  for (const item of elements) {
+    if (item.type === 'heading') {
+      if (currentSection.items.length > 0) {
+        sections.push(currentSection);
+      }
+      currentSection = { title: item.text, items: [] };
+    } else {
+      currentSection.items.push(item);
+    }
+  }
+
+  if (currentSection.items.length > 0) {
+    sections.push(currentSection);
+  }
+
+  return sections;
+}
+
+/**
+ * Clean up raw text lines, removing lone page numbers and PDF artifacts.
+ */
+function cleanRawLines(rawText) {
+  return rawText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line || line.length === 0) return false;
+      // Filter out isolated page numbers (e.g. standalone "1", "2")
+      if (/^\d+$/.test(line)) return false;
+      // Filter out internal PDF syntax artifacts
+      if (/^(trailer|%%EOF|xref|\d+\s+\d+\s+obj|endobj)$/.test(line)) return false;
+      return true;
+    });
+}
+
+/**
+ * Fallback binary string extractor for corrupted PDFs.
  */
 function extractRawTextFromBuffer(buffer) {
   const str = buffer.toString('binary');
-  // Match readable text chunks (3 or more consecutive printable characters)
   const matches = str.match(/[\x20-\x7E]{3,}/g) || [];
   
-  // Filter out internal PDF operators and syntax keywords
-  const filteredLines = matches
-    .map(line => line.trim())
-    .filter(line => 
+  return matches
+    .map((line) => line.trim())
+    .filter((line) => 
       line.length > 2 && 
       !line.startsWith('/') && 
       !line.includes('obj') && 
@@ -22,13 +106,12 @@ function extractRawTextFromBuffer(buffer) {
       !line.includes('stream') &&
       !line.includes('endstream') &&
       !line.includes('xref')
-    );
-
-  return filteredLines.join('\n');
+    )
+    .join('\n');
 }
 
 /**
- * Parses a PDF Buffer into structured JSON with a multi-stage fallback system.
+ * Production-grade multi-stage PDF Parser
  */
 async function parsePdfToJson(dataBuffer) {
   if (!dataBuffer || !Buffer.isBuffer(dataBuffer)) {
@@ -37,7 +120,7 @@ async function parsePdfToJson(dataBuffer) {
 
   let processingBuffer = dataBuffer;
 
-  // Stage 1: Attempt auto-repair on broken PDF structures via pdf-lib
+  // Stage 1: Auto-repair PDF structures via pdf-lib
   try {
     const pdfDoc = await PDFDocument.load(dataBuffer, { 
       ignoreEncryption: true,
@@ -46,62 +129,62 @@ async function parsePdfToJson(dataBuffer) {
     const repairedBytes = await pdfDoc.save();
     processingBuffer = Buffer.from(repairedBytes);
   } catch (repairError) {
-    console.warn('[PDF Repair Warning]: Could not auto-repair stream with pdf-lib:', repairError.message);
+    console.warn('[PDF Repair Warning]: Standard pdf-lib repair bypassed:', repairError.message);
   }
 
-  // Stage 2: Standard PDF parsing via pdf-parse
+  // Stage 2: Extract text using pdf-parse
+  let rawText = '';
+  let totalPages = 1;
+  let pdfInfo = {};
+
   try {
-    const data = await pdfParse(processingBuffer);
-
-    const rawText = data.text || '';
-    const lines = rawText
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-
-    // If text was successfully extracted, return standard response
-    if (lines.length > 0) {
-      return {
-        metadata: {
-          totalPages: data.numpages || 1,
-          info: data.info || {},
-          version: data.version || '1.0'
-        },
-        stats: {
-          totalCharacters: rawText.length,
-          totalLines: lines.length
-        },
-        content: {
-          rawText: rawText,
-          lines: lines
-        }
-      };
-    }
+    const parsedData = await pdfParse(processingBuffer);
+    rawText = parsedData.text || '';
+    totalPages = parsedData.numpages || 1;
+    pdfInfo = parsedData.info || {};
   } catch (parseError) {
-    console.warn('[PDF Standard Parse Failed]: Triggering raw binary text extractor fallback...', parseError.message);
+    console.warn('[PDF Standard Parse Failed]: Executing raw binary extractor fallback...');
+    rawText = extractRawTextFromBuffer(dataBuffer);
   }
 
-  // Stage 3: Low-Level Binary Extraction Fallback (Guarantees output even for severely invalid PDFs)
-  const fallbackText = extractRawTextFromBuffer(dataBuffer);
-  const fallbackLines = fallbackText.split('\n').filter(line => line.length > 0);
+  // Clean lines and strip page numbers / artifacts
+  const cleanLines = cleanRawLines(rawText);
 
-  if (fallbackLines.length === 0) {
-    throw new Error('The PDF document is severely corrupted or contains only raster images without an OCR layer.');
+  if (cleanLines.length === 0) {
+    throw new Error('PDF contains no extractable text or is a scanned image without an OCR layer.');
   }
+
+  // Stage 3: Build Semantic Structures
+  const structuredElements = cleanLines.map(classifyLine);
+  const documentOutline = buildDocumentOutline(structuredElements);
+
+  // Extract contact details & key-values for quick access
+  const extractedEntities = {
+    emails: structuredElements.filter(e => e.type === 'email').map(e => e.value),
+    phones: structuredElements.filter(e => e.type === 'phone').map(e => e.value),
+    urls: structuredElements.filter(e => e.type === 'url').map(e => e.value),
+    keyValues: structuredElements.filter(e => e.type === 'key_value').reduce((acc, curr) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {})
+  };
 
   return {
     metadata: {
-      totalPages: 1,
-      info: { title: 'Raw Recovered Stream' },
-      version: 'recovered'
+      totalPages: totalPages,
+      info: pdfInfo,
+      processedAt: new Date().toISOString()
     },
     stats: {
-      totalCharacters: fallbackText.length,
-      totalLines: fallbackLines.length
+      totalCharacters: rawText.length,
+      totalLines: cleanLines.length,
+      totalSections: documentOutline.length
     },
+    entities: extractedEntities,
+    outline: documentOutline,
     content: {
-      rawText: fallbackText,
-      lines: fallbackLines
+      elements: structuredElements,
+      rawLines: cleanLines
     }
   };
 }
