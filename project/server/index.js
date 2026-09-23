@@ -11,62 +11,83 @@ const { parsePdfToJson } = require('./parser');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Configure Multer for File Uploads (In-Memory Buffer)
-const storage = multer.memoryStorage();
+// Configure Multer in-memory storage
 const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // Limit file size to 10MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only PDF files are allowed.'), false);
-    }
-  }
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
 });
 
-// 1. Core & Security Middleware
+// 1. Core Security & CORS Middleware (MUST COME FIRST)
 applySecurity(app);
 app.use(cors());
+
+// 2. Logging Middleware for Debugging
+app.use((req, res, next) => {
+  if (req.path === '/api/parse') {
+    console.log(`[Incoming Request] ${req.method} ${req.path} - Content-Type: ${req.headers['content-type']}`);
+  }
+  next();
+});
+
+// 3. Serve Static Frontend Files
+app.use(express.static(path.join(__dirname, '../public')));
+
+// 4. JSON / URL Body Parsers (Excludes multipart/form-data streams to prevent corruption)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 2. Serve Static Frontend Files
-app.use(express.static(path.join(__dirname, '../public')));
-
-// 3. Healthcheck Endpoint
+// 5. Health Check Endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 4. PDF Upload & Parsing Endpoint
-app.post('/api/parse', upload.single('file'), async (req, res, next) => {
-  try {
-    if (!req.file) {
+// 6. PDF Upload & Parse Route
+app.post('/api/parse', (req, res, next) => {
+  upload.single('file')(req, res, async (err) => {
+    // Handle Multer specific upload errors
+    if (err) {
+      console.error('[Multer Error]:', err.message);
       return res.status(400).json({
         error: true,
-        message: 'No PDF file uploaded. Please send a file under the "file" field.'
+        message: `File upload error: ${err.message}`
       });
     }
 
-    // Call parser function with uploaded file buffer
-    const result = await parsePdfToJson(req.file.buffer);
+    try {
+      if (!req.file || !req.file.buffer) {
+        console.error('[Upload Failed]: No file payload found in req.file');
+        return res.status(400).json({
+          error: true,
+          message: 'No file received. Ensure you are uploading a valid PDF under key "file".'
+        });
+      }
 
-    return res.status(200).json({
-      success: true,
-      data: result
-    });
-  } catch (err) {
-    next(err);
-  }
+      console.log(`[Processing File]: ${req.file.originalname} (${req.file.size} bytes)`);
+
+      // Execute PDF Parser logic
+      const parsedData = await parsePdfToJson(req.file.buffer);
+
+      console.log('[Parse Success]: Returning JSON output to client.');
+      return res.status(200).json({
+        success: true,
+        fileName: req.file.originalname,
+        data: parsedData
+      });
+
+    } catch (parseError) {
+      console.error('[Parsing Pipeline Error]:', parseError);
+      return res.status(500).json({
+        error: true,
+        message: parseError.message || 'Error occurred while parsing the PDF.'
+      });
+    }
+  });
 });
 
-// 5. Global Error Handler
+// 7. Global Error Handler
 app.use(errorHandler);
 
-// 6. Single Listener Execution Guard
+// 8. Server Listener Guard
 if (require.main === module || process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, () => {
     console.log(`Server successfully running on port ${PORT}`);
@@ -74,9 +95,9 @@ if (require.main === module || process.env.NODE_ENV !== 'test') {
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[EADDRINUSE Error] Port ${PORT} is already bound. Ensure duplicate listen calls are removed.`);
+      console.error(`[EADDRINUSE Error] Port ${PORT} is bound. Ensure no duplicate listen calls exist.`);
     } else {
-      console.error('[Server Error]', err);
+      console.error('[Server Error]:', err);
     }
   });
 }
