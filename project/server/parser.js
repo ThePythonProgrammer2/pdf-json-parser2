@@ -47,7 +47,7 @@ function detectCurrency(text) {
     if (p.regex.test(text)) return p.code;
   }
   const codeMatch = text.match(/\b(USD|EUR|GBP|JPY|INR|CAD|AUD|CHF|CNY)\b/i);
-  return codeMatch ? codeMatch.toUpperCase() : null;
+  return codeMatch ? codeMatch[0].toUpperCase() : null;
 }
 
 /**
@@ -68,20 +68,20 @@ function extractInvoiceItems(text) {
     let totalPrice = null;
 
     const qtyPriceMatch = line.match(/^(.+?)\s+(\d+)\s*[xX@]\s*[\$€£₹]?([\d,]+\.?\d*)\s*\$/);
-    if (qtyPriceMatch && qtyPriceMatch.trim().length > 2) {
-      description = qtyPriceMatch.trim();
+    if (qtyPriceMatch) {
+      description = qtyPriceMatch[1].trim();
       quantity = parseInt(qtyPriceMatch[2], 10);
-      unitPrice = parseFloat(qtyPriceMatch.replace(/,/g, ''));
+      unitPrice = parseFloat(qtyPriceMatch[3].replace(/,/g, ''));
       totalPrice = quantity * unitPrice;
     }
 
     if (!description) {
       const trailingPriceMatch = line.match(/^(.+?)\s+[\$€£₹]?([\d,]+\.?\d*)\s*\$/);
-      if (trailingPriceMatch && trailingPriceMatch.trim().length > 2) {
-        const rawDesc = trailingPriceMatch.trim();
+      if (trailingPriceMatch) {
+        const rawDesc = trailingPriceMatch[1].trim();
         if (!/^[0-9.,\s]+\$/.test(rawDesc)) {
           description = rawDesc;
-          totalPrice = parseFloat(trailingPriceMatch.replace(/,/g, ''));
+          totalPrice = parseFloat(trailingPriceMatch[2].replace(/,/g, ''));
         }
       }
     }
@@ -107,15 +107,13 @@ const KNOWN_SKILLS = [
 ];
 
 /**
- * Core Primary Processing Pipeline Engine.
- * Takes raw text layouts and structures them cleanly.
+ * Parses an individual document segment.
  * 
  * @param {string} rawText 
  * @returns {Object}
  */
-function parseDocument(rawText) {
+function parseSingleChunk(rawText) {
   const normalizedText = rawText.toLowerCase();
-  
   let documentType = 'unknown';
   let confidenceScore = 0.5;
   let primaryEntity = null;
@@ -125,14 +123,15 @@ function parseDocument(rawText) {
     confidenceScore = 0.85;
     
     const entityMatch = rawText.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s+(?:Inc\.|Ltd\.|LLC|Corp\.))\b/);
-    primaryEntity = entityMatch ? entityMatch : 'Unknown Vendor';
+    primaryEntity = entityMatch ? entityMatch[1] : 'Unknown Vendor';
   } else if (normalizedText.includes('experience') || normalizedText.includes('education') || normalizedText.includes('resume')) {
     documentType = 'resume';
     confidenceScore = 0.90;
     
-    const cleanTextStart = rawText.trim();
+    // FIXED: Stripped structural numbering anomalies and anchored tracking to group capture indices [1] and [2]
+    const cleanTextStart = rawText.replace(/^\s*\d+\.\s*/, '').trim();
     const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
-    primaryEntity = nameMatch ? `${nameMatch} ${nameMatch}` : 'Unknown Candidate';
+    primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
   }
 
   const currencyDetected = detectCurrency(rawText);
@@ -151,7 +150,7 @@ function parseDocument(rawText) {
   let totalAmount = null;
   if (documentType === 'invoice') {
     const totalMatch = normalizedText.match(/(?:total|amount\s*due|grand\s*total)\s*[:\$\s]*([\d,]+\.\d{2})/);
-    totalAmount = totalMatch ? parseFloat(totalMatch.replace(/,/g, '')) : null;
+    totalAmount = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : null;
   }
 
   return {
@@ -170,37 +169,36 @@ function parseDocument(rawText) {
 }
 
 /**
- * Multi-document array processing splitter handler.
- * Looks for common resume initialization markers and processes them as individual elements.
+ * Core Entry Pipeline Engine.
+ * Automatically checks if a bulk collection text string is uploaded and splits it before processing.
  * 
- * @param {string} bulkText 
- * @returns {Array<Object>} An array containing all parsed files.
+ * @param {string} rawText 
+ * @returns {Object|Array<Object>}
  */
-function parseMultiDocumentCollection(bulkText) {
-  if (!bulkText) return [];
+function parseDocument(rawText) {
+  if (!rawText) return null;
 
-  // FIXED: Expanded the splitting regex pattern so it tracks individual structural document breaks cleanly
-  const documentChunks = bulkText
-    .split(/(?=\bexperience\b|\beducation\b|\f|\n---+\n|\n___+\n)/i)
+  // Split by structural candidate boundaries (e.g., "2. Priya Shah", "3. Daniel Brooks")
+  const documentChunks = rawText
+    .split(/(?=\n\s*\d+\.\s+[A-Z][a-z]+)/)
     .map(chunk => chunk.trim())
     .filter(chunk => chunk.length > 40);
 
+  // If it's just one resume, return the single object matching old bolt.new layout expectancies
   if (documentChunks.length <= 1) {
-    return [parseDocument(bulkText)];
+    return parseSingleChunk(rawText);
   }
 
-  return documentChunks.map(chunk => parseDocument(chunk));
+  // Otherwise, process and return the full array collection of all 10 resumes
+  return documentChunks.map(chunk => parseSingleChunk(chunk));
 }
 
 function buildAiPrompt(rawText) {
-  return `Analyze the following raw text from a document. Output a strict JSON structure matching the rules.
-  Raw Text Content:
-  ${rawText}`;
+  return `Analyze the text and extract parameters.\n${rawText}`;
 }
 
 module.exports = {
   hashBuffer,
   parseDocument,
-  parseMultiDocumentCollection,
   buildAiPrompt
 };
