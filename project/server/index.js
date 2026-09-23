@@ -1,39 +1,44 @@
-// Locate your main POST parsing route entry block inside project/server/index.js
-// Replace that specific endpoint route block with this production-ready middleware integration logic:
+const express = require('express');
+const cors = require('cors');
+const { parseDocument } = require('./parser');
 
-app.post('/api/parse', (req, res, next) => {
+// Initialize the Express app instance securely (Fixes "app is not defined")
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Global Middleware Configuration Settings
+app.use(cors());
+app.use(express.json({ limit: '50mb' })); // Allows processing deep text documents safely
+
+// Core Document Parsing Route Entry Point
+app.post('/api/parse', (req, res) => {
   try {
     const { text } = req.body;
     
     if (!text) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Bad Request: Missing text transaction payload processing context parameters.' 
+        error: 'Bad Request: Missing raw text payload parameters.' 
       });
     }
 
-    // Run our updated core synchronous parsing pipeline handler
-    const parserResult = parseDocument(text);
+    // Process the text layout synchronously through your local parsing script
+    const result = parseDocument(text);
 
-    // If it's a bulk multi-resume text payload block, return the nested array collection
-    if (parserResult.is_collection) {
-      return res.status(200).json({
-        success: true,
-        count: parserResult.data.length,
-        is_collection: true,
-        records: parserResult.data // Always wraps collection records array list directly
-      });
-    }
-
-    // Otherwise, return a unified response block matching single document expectancies safely
-    return res.status(200).json({
-      success: true,
-      is_collection: false,
-      ...parserResult.data
-    });
+    // Return a clean single object format to match your bolt.new frontend card view contracts
+    return res.status(200).json(result);
 
   } catch (error) {
-    console.error('API Pipeline Runtime Error Context:', error);
-    next(error); // Offloads processing cleanly to yourErrorHandler middleware layout safely
+    console.error('Server Processing Pipeline Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal Server Error encountered during parsing.',
+      details: error.message
+    });
   }
+});
+
+// Boot listening environment
+app.listen(PORT, () => {
+  console.log(`🚀 Stable parser engine active on http://localhost:${PORT}`);
 });
