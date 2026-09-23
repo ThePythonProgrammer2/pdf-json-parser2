@@ -19,18 +19,17 @@ function hashBuffer(buffer) {
 function buildSummary(text, docType, primaryEntity) {
   const nameValue = (primaryEntity && primaryEntity !== 'Unknown Vendor' && primaryEntity !== 'Unknown Candidate') ? primaryEntity : null;
   
-  // FIXED: Converted single/double quotes to backticks (`) and removed the backslash escapes (\) 
-  // so JavaScript natively interpolates the `nameValue` variable at runtime.
+  // FIXED: Completely removed the backslash escapes (\) from inside the template literals.
+  // Now, JavaScript will evaluate the runtime value natively.
   if (docType === 'invoice') {
-    return `This appears to be an invoice${nameValue ? ` from \${nameValue}` : ''}. ` +
-      `Key details include line items, dates, and financial amounts extracted from the document text.`;
+    const fromSegment = nameValue ? ` from ${nameValue}` : '';
+    return `This appears to be an invoice${fromSegment}. Key details include line items, dates, and financial amounts extracted from the document text.`;
   }
   if (docType === 'resume') {
-    return `This appears to be a resume${nameValue ? ` for \${nameValue}` : ''}. ` +
-      `The document outlines professional experience, skills, and qualifications for a job candidate.`;
+    const forSegment = nameValue ? ` for ${nameValue}` : '';
+    return `This appears to be a resume${forSegment}. The document outlines professional experience, skills, and qualifications for a job candidate.`;
   }
-  return `This document could not be confidently classified as an invoice or resume. ` +
-    `Some structural data was extracted but the document type remains uncertain.`;
+  return `This document could not be confidently classified as an invoice or resume. Some structural data was extracted but the document type remains uncertain.`;
 }
 
 /**
@@ -138,6 +137,8 @@ function parseDocument(rawText) {
     documentType = 'resume';
     confidenceScore = 0.90;
     
+    // FIXED: Properly extraction group strings from the array match indices ([1] and [2]).
+    // This stops it from passing the raw RegExp object down stream.
     const cleanTextStart = rawText.trim();
     const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
     primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
@@ -159,7 +160,7 @@ function parseDocument(rawText) {
   let totalAmount = null;
   if (documentType === 'invoice') {
     const totalMatch = normalizedText.match(/(?:total|amount\s*due|grand\s*total)\s*[:\$\s]*([\d,]+\.\d{2})/);
-    totalAmount = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : null;
+    totalAmount = totalMatch ? parseFloat(totalMatch.replace(/,/g, '')) : null;
   }
 
   return {
@@ -188,7 +189,7 @@ function buildAiPrompt(rawText) {
   return `Analyze the following raw unstructured text extracted from a PDF document. Your task is to output a clean, strict JSON object following the format below. Do not include any markdown headers or explanations.
 
 CRITICAL INSTRUCTION FOR RAW_SUMMARY: 
-Do not output literal placeholders like \${primaryEntity} or variables. Write out the actual name of the vendor or job candidate directly inside the sentence string. Example: "This appears to be a resume for Jane Doe."
+Do not output literal placeholders or variable names. Write out the actual name of the vendor or job candidate directly inside the sentence string. Example: "This appears to be a resume for Jane Doe."
 
 Response Shape format:
 {
