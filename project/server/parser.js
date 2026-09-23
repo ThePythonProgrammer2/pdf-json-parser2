@@ -10,25 +10,13 @@ function hashBuffer(buffer) {
 }
 
 /**
- * Generates a brief 2-sentence raw summary from extracted text.
- * @param {string} text
- * @param {string} docType
- * @param {string|null} primaryEntity
- * @returns {string}
+ * Technical skills dictionary asset matching pool.
  */
-function buildSummary(text, docType, primaryEntity) {
-  const nameValue = (primaryEntity && primaryEntity !== 'Unknown Vendor' && primaryEntity !== 'Unknown Candidate') ? primaryEntity : null;
-  
-  if (docType === 'invoice') {
-    const fromSegment = nameValue ? ` from ${nameValue}` : '';
-    return `This appears to be an invoice${fromSegment}. Key details include line items, dates, and financial amounts extracted from the document text.`;
-  }
-  if (docType === 'resume') {
-    const forSegment = nameValue ? ` for ${nameValue}` : '';
-    return `This appears to be a resume${forSegment}. The document outlines professional experience, skills, and qualifications for a job candidate.`;
-  }
-  return `This document could not be confidently classified as an invoice or resume. Some structural data was extracted but the document type remains uncertain.`;
-}
+const KNOWN_SKILLS = [
+  'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin',
+  'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Next.js', 'Nuxt', 'Django', 'Flask', 'HTML5', 'CSS3', 'Tailwind',
+  'SQL', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'GraphQL', 'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Git'
+];
 
 /**
  * Attempts to detect the currency symbol/code from text.
@@ -47,7 +35,7 @@ function detectCurrency(text) {
     if (p.regex.test(text)) return p.code;
   }
   const codeMatch = text.match(/\b(USD|EUR|GBP|JPY|INR|CAD|AUD|CHF|CNY)\b/i);
-  return codeMatch ? codeMatch[0].toUpperCase() : null;
+  return codeMatch ? codeMatch[1].toUpperCase() : null;
 }
 
 /**
@@ -100,17 +88,9 @@ function extractInvoiceItems(text) {
   return items;
 }
 
-const KNOWN_SKILLS = [
-  'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Go', 'Rust', 'Ruby', 'PHP', 'Swift', 'Kotlin',
-  'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Next.js', 'Nuxt', 'Django', 'Flask', 'HTML5', 'CSS3', 'Tailwind',
-  'SQL', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'GraphQL', 'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Git'
-];
-
 /**
- * Parses an individual document segment.
- * 
- * @param {string} rawText 
- * @returns {Object}
+ * Native Heuristic Parser (Fallback only)
+ * Processes data if the AI API is unreachable or fails.
  */
 function parseSingleChunk(rawText) {
   const normalizedText = rawText.toLowerCase();
@@ -121,14 +101,11 @@ function parseSingleChunk(rawText) {
   if (normalizedText.includes('invoice') || normalizedText.includes('bill to') || normalizedText.includes('amount due')) {
     documentType = 'invoice';
     confidenceScore = 0.85;
-    
     const entityMatch = rawText.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s+(?:Inc\.|Ltd\.|LLC|Corp\.))\b/);
     primaryEntity = entityMatch ? entityMatch[1] : 'Unknown Vendor';
   } else if (normalizedText.includes('experience') || normalizedText.includes('education') || normalizedText.includes('resume')) {
     documentType = 'resume';
     confidenceScore = 0.90;
-    
-    // FIXED: Stripped structural numbering anomalies and anchored tracking to group capture indices [1] and [2]
     const cleanTextStart = rawText.replace(/^\s*\d+\.\s*/, '').trim();
     const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
     primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
@@ -153,6 +130,11 @@ function parseSingleChunk(rawText) {
     totalAmount = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : null;
   }
 
+  // Basic fallback summary text if AI doesn't run
+  const fallbackSummary = documentType === 'resume' 
+    ? `A candidate profile for ${primaryEntity} with skills in: ${skillsExtracted.slice(0, 4).join(', ')}.`
+    : `An invoice document associated with ${primaryEntity}.`;
+
   return {
     document_type: documentType,
     confidence_score: confidenceScore,
@@ -164,37 +146,63 @@ function parseSingleChunk(rawText) {
       tax_amount: totalAmount ? parseFloat((totalAmount * 0.08).toFixed(2)) : null,
     },
     extracted_items: documentType === 'invoice' ? invoiceItems : skillsExtracted,
-    raw_summary: buildSummary(rawText, documentType, primaryEntity)
+    raw_summary: fallbackSummary
   };
 }
 
 /**
- * Core Entry Pipeline Engine.
- * Automatically checks if a bulk collection text string is uploaded and splits it before processing.
- * 
- * @param {string} rawText 
- * @returns {Object|Array<Object>}
+ * Entry point for local string parsing execution loops.
  */
 function parseDocument(rawText) {
   if (!rawText) return null;
 
-  // Split by structural candidate boundaries (e.g., "2. Priya Shah", "3. Daniel Brooks")
   const documentChunks = rawText
     .split(/(?=\n\s*\d+\.\s+[A-Z][a-z]+)/)
     .map(chunk => chunk.trim())
     .filter(chunk => chunk.length > 40);
 
-  // If it's just one resume, return the single object matching old bolt.new layout expectancies
   if (documentChunks.length <= 1) {
     return parseSingleChunk(rawText);
   }
 
-  // Otherwise, process and return the full array collection of all 10 resumes
   return documentChunks.map(chunk => parseSingleChunk(chunk));
 }
 
+/**
+ * Builds the AI Prompt structure instructing the LLM to compose dynamic summaries.
+ * 
+ * @param {string} rawText 
+ * @returns {string}
+ */
 function buildAiPrompt(rawText) {
-  return `Analyze the text and extract parameters.\n${rawText}`;
+  // CHANGED: Completely overhauled the prompt context.
+  // Explicitly forbids template loops and forces the AI to write high-value elevator pitches.
+  return `You are a professional document extraction system. Analyze the raw text payload extracted from a PDF document and structure it into a clean, strict JSON array. If multiple independent resumes or invoices are present in the text, generate one JSON object entry per candidate or vendor inside the array block. Do not include markdown wraps or code block syntax.
+
+RULES FOR THE "raw_summary" FIELD:
+1. Do NOT use boilerplate template text or code string placeholders like \${primaryEntity} or \${nameValue}.
+2. For Resumes: Synthesize a custom 1-to-2 sentence professional elevator pitch. Synthesize their years of experience, core industry seniority, and standout tech stacks. Example: "A Senior Frontend Engineer with 4+ years of experience specialized in React, TypeScript, and component architecture frameworks."
+3. For Invoices: Summarize what the invoice was issued for, specifying key vendor details and outstanding transactions.
+
+Target Output JSON Format Architecture:
+[
+  {
+    "document_type": "invoice" or "resume" or "unknown",
+    "confidence_score": 0.0 to 1.0,
+    "primary_entity": "Vendor Name" or "Candidate Name" or null,
+    "date": "YYYY-MM-DD" or null,
+    "financials": {
+      "total_amount": 0.00 or null,
+      "currency": "USD" or "EUR" or null,
+      "tax_amount": 0.00 or null
+    },
+    "extracted_items": ["item strings" or "skills arrays"],
+    "raw_summary": "Your dynamic custom synthesized summary statement here."
+  }
+]
+
+Raw Text Payload Content:
+${rawText}`;
 }
 
 module.exports = {
