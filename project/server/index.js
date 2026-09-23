@@ -10,34 +10,35 @@ const { parsePdfToJson } = require('./parser');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// 1. Security & Core Middleware
+// 1. Core & Security Middleware
 applySecurity(app);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 2. Serve Static Frontend Files
+// 2. Serve Static Assets
 app.use(express.static(path.join(__dirname, '../public')));
 
-// 3. Health Check Route
+// 3. Healthcheck Endpoint (For Render monitoring)
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 4. Global Error Handler
+// 4. Global Error Handling
 app.use(errorHandler);
 
-// 5. Single Listener Execution
+// 5. Single Listener Execution Guard
+// Prevents EADDRINUSE when file is imported by test modules or other entry points
 if (require.main === module || process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, () => {
-    console.log(`Server successfully listening on port ${PORT}`);
+    console.log(`Server successfully running on port ${PORT}`);
   });
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[Error] Port ${PORT} is already in use. Ensure no duplicate listen calls exist.`);
+      console.error(`[EADDRINUSE Error] Port ${PORT} is already bound. Ensure duplicate listen calls are removed.`);
     } else {
-      console.error('[Error] Server encountered an unexpected issue:', err);
+      console.error('[Server Error]', err);
     }
   });
 }
