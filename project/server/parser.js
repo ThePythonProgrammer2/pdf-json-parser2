@@ -1,48 +1,30 @@
 // server/parser.js
 const pdfParse = require('pdf-parse');
+const { PDFDocument } = require('pdf-lib');
 
 /**
- * Custom renderer options to prevent pdf-parse from crashing on bad XRef tables
- * or non-standard glyph maps.
- */
-function renderPage(pageData) {
-  const renderOptions = {
-    normalizeWhitespace: true,
-    disableCombineTextItems: false
-  };
-
-  return pageData.getTextContent(renderOptions).then((textContent) => {
-    let lastY, text = '';
-    for (let item of textContent.items) {
-      if (lastY == item.transform[5] || !lastY) {
-        text += item.str;
-      } else {
-        text += '\n' + item.str;
-      }
-      lastY = item.transform[5];
-    }
-    return text;
-  });
-}
-
-/**
- * Parses PDF Buffer into structured JSON, handling corrupted XRef entries natively.
- * @param {Buffer} dataBuffer - Raw PDF buffer from Multer
- * @returns {Promise<Object>} Structured JSON output
+ * Parses PDF Buffer into structured JSON, using pdf-lib to auto-repair
+ * broken XRef tables or stream headers beforehand.
  */
 async function parsePdfToJson(dataBuffer) {
   if (!dataBuffer || !Buffer.isBuffer(dataBuffer)) {
     throw new Error('Invalid input payload: Expected a valid file Buffer.');
   }
 
-  // Configuration options to recover from corrupted XRef tables
-  const options = {
-    pagerender: renderPage,
-    max: 0 // Parse all pages
-  };
+  let processingBuffer = dataBuffer;
 
+  // Step 1: Attempt auto-repair on broken or corrupted PDF structures
   try {
-    const data = await pdfParse(dataBuffer, options);
+    const pdfDoc = await PDFDocument.load(dataBuffer, { ignoreEncryption: true });
+    const repairedBytes = await pdfDoc.save();
+    processingBuffer = Buffer.from(repairedBytes);
+  } catch (repairError) {
+    console.warn('[PDF Repair Warning]: Could not auto-repair stream, falling back to raw parser:', repairError.message);
+  }
+
+  // Step 2: Extract text content using pdf-parse
+  try {
+    const data = await pdfParse(processingBuffer);
 
     const rawText = data.text || '';
     const lines = rawText
@@ -65,20 +47,9 @@ async function parsePdfToJson(dataBuffer) {
         lines: lines
       }
     };
-  } catch (error) {
-    console.error('[PDF Parser Error]:', error.message);
-
-    // Specific user-friendly error handling for common PDF structure issues
-    if (error.message.includes('bad XRef') || error.message.includes('XRef')) {
-      throw new Error(
-        'The uploaded PDF has a damaged or corrupted cross-reference (XRef) table. Please re-save or flatten the document.'
-      );
-    }
-    if (error.message.includes('Password')) {
-      throw new Error('The uploaded PDF is password-protected or encrypted.');
-    }
-
-    throw new Error(`Failed to process PDF: ${error.message}`);
+  } catch (parseError) {
+    console.error('[PDF Parsing Error]:', parseError.message);
+    throw new Error(`Failed to process PDF: ${parseError.message}`);
   }
 }
 
