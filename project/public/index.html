@@ -5,47 +5,286 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PDF to JSON Parser</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    .card { border: 1px solid #ccc; padding: 2rem; border-radius: 8px; }
-    pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 400px; }
-    button { background: #0066cc; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
-    button:hover { background: #0052a3; }
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --accent-color: #2563eb;
+      --accent-hover: #1d4ed8;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+      --code-bg: #0f172a;
+      --code-color: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding: 2rem 1rem;
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    header p {
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border-color);
+      border-radius: 8px;
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent-color);
+      background-color: #eff6ff;
+    }
+
+    .drop-zone p {
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .btn {
+      display: inline-block;
+      background-color: var(--accent-color);
+      color: #ffffff;
+      font-weight: 600;
+      padding: 0.6rem 1.2rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background-color 0.2s ease;
+      margin-top: 1rem;
+    }
+
+    .btn:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .btn:disabled {
+      background-color: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .output-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .output-header h3 {
+      font-size: 1.1rem;
+      color: var(--text-main);
+    }
+
+    .btn-secondary {
+      background-color: transparent;
+      color: var(--accent-color);
+      border: 1px solid var(--accent-color);
+      padding: 0.3rem 0.8rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+      background-color: #eff6ff;
+    }
+
+    pre {
+      background-color: var(--code-bg);
+      color: var(--code-color);
+      padding: 1.25rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      max-height: 500px;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    .status {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+
+    .status.error { color: #dc2626; }
+    .status.success { color: #16a34a; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>Upload PDF for Parsing</h2>
-    <form id="uploadForm">
-      <input type="file" id="pdfFile" accept="application/pdf" required />
-      <button type="submit">Convert to JSON</button>
-    </form>
-    <h3>Result:</h3>
-    <pre id="output">Upload a file to see JSON output...</pre>
+
+  <div class="container">
+    <header>
+      <h1>PDF to JSON Parser</h1>
+      <p>Upload a PDF document to extract structured JSON data.</p>
+    </header>
+
+    <div class="card">
+      <form id="uploadForm">
+        <div class="drop-zone" id="dropZone">
+          <strong>Drag & drop your PDF file here</strong>
+          <p>or click to browse files (Max size: 10MB)</p>
+          <input type="file" id="fileInput" accept="application/pdf" />
+          <p id="fileName" style="font-weight: 600; color: var(--accent-color); margin-top: 0.75rem;"></p>
+        </div>
+        <button type="submit" class="btn" id="submitBtn" disabled>Parse PDF</button>
+      </form>
+      <div id="statusMessage" class="status"></div>
+    </div>
+
+    <div class="card">
+      <div class="output-header">
+        <h3>Parsed JSON Output</h3>
+        <button class="btn-secondary" id="copyBtn">Copy JSON</button>
+      </div>
+      <pre id="jsonOutput">// Upload a file and click "Parse PDF" to view results...</pre>
+    </div>
   </div>
 
   <script>
-    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fileInput = document.getElementById('pdfFile');
-      const output = document.getElementById('output');
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileNameDisplay = document.getElementById('fileName');
+    const uploadForm = document.getElementById('uploadForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const jsonOutput = document.getElementById('jsonOutput');
+    const statusMessage = document.getElementById('statusMessage');
+    const copyBtn = document.getElementById('copyBtn');
 
-      if (!fileInput.files[0]) return;
+    // Drag and Drop triggers
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+      dropZone.addEventListener(type, () => dropZone.classList.remove('dragover'));
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        handleFileSelected();
+      }
+    });
+
+    fileInput.addEventListener('change', handleFileSelected);
+
+    function handleFileSelected() {
+      const file = fileInput.files[0];
+      if (file) {
+        if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+          showStatus('Please select a valid PDF file.', 'error');
+          submitBtn.disabled = true;
+          return;
+        }
+        fileNameDisplay.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+        submitBtn.disabled = false;
+        showStatus('', '');
+      }
+    }
+
+    function showStatus(msg, type) {
+      statusMessage.textContent = msg;
+      statusMessage.className = `status ${type}`;
+    }
+
+    // Handle API submit request
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
 
       const formData = new FormData();
-      formData.append('file', fileInput.files[0]);
+      formData.append('file', file);
 
-      output.textContent = 'Parsing...';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Parsing...';
+      showStatus('Uploading and parsing document...', '');
+      jsonOutput.textContent = '// Parsing in progress, please wait...';
 
       try {
         const response = await fetch('/api/parse', {
           method: 'POST',
           body: formData
         });
+
         const result = await response.json();
-        output.textContent = JSON.stringify(result, null, 2);
+
+        if (!response.ok || result.error) {
+          throw new Error(result.message || 'Failed to parse PDF.');
+        }
+
+        jsonOutput.textContent = JSON.stringify(result, null, 2);
+        showStatus('PDF successfully parsed!', 'success');
       } catch (err) {
-        output.textContent = 'Error parsing PDF file.';
+        jsonOutput.textContent = `// Error:\n${err.message}`;
+        showStatus(err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Parse PDF';
       }
+    });
+
+    // Copy to clipboard
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(jsonOutput.textContent).then(() => {
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = originalText, 2000);
+      });
     });
   </script>
 </body>
