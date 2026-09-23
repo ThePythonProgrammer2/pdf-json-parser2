@@ -1,207 +1,225 @@
-// server/parser.js
-const pdfParse = require('pdf-parse');
-const { PDFDocument } = require('pdf-lib');
+const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 
 /**
- * Categorizes a single text line into semantic JSON structures.
+ * Enterprise Document AI Parser Engine
  */
-function classifyLine(line) {
-  const trimmed = line.trim();
 
-  // 1. Email detection
-  if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
-    return { type: 'email', value: trimmed };
-  }
-
-  // 2. Phone number detection
-  if (/^(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/.test(trimmed)) {
-    return { type: 'phone', value: trimmed };
-  }
-
-  // 3. Web URL detection
-  if (/^(https?:\/\/)?(www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\/\S*)?$/.test(trimmed)) {
-    return { type: 'url', value: trimmed };
-  }
-
-  // 4. Key-Value pairs (e.g., "Author: John Doe", "Skill: JavaScript")
-  const kvMatch = trimmed.match(/^([A-Za-z0-9\s_]{2,25}):\s+(.+)$/);
-  if (kvMatch) {
-    return { type: 'key_value', key: kvMatch[1].trim(), value: kvMatch[2].trim() };
-  }
-
-  // 5. Bullet points
-  if (/^[-•*▪➢]\s+/.test(trimmed) || /^\d+[\.\)]\s+/.test(trimmed)) {
-    return { type: 'bullet_point', text: trimmed.replace(/^([-•*▪➢]|\d+[\.\)])\s*/, '') };
-  }
-
-  // 6. Section Headings (Short, uppercase or title case, no ending punctuation)
-  const isShort = trimmed.length > 2 && trimmed.length <= 45;
-  const isAllCaps = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
-  const isTitleCase = /^[A-Z][a-zA-Z0-9\s,&-]+$/.test(trimmed) && !/[.?!]$/.test(trimmed);
-
-  if (isShort && (isAllCaps || isTitleCase)) {
-    return { type: 'heading', text: trimmed };
-  }
-
-  // 7. Standard Paragraph
-  return { type: 'paragraph', text: trimmed };
-}
-
-/**
- * Groups flattened elements under heading sections.
- */
-function buildDocumentOutline(elements) {
-  const sections = [];
-  let currentSection = { title: 'General Content', items: [] };
-
-  for (const item of elements) {
-    if (item.type === 'heading') {
-      if (currentSection.items.length > 0) {
-        sections.push(currentSection);
-      }
-      currentSection = { title: item.text, items: [] };
-    } else {
-      currentSection.items.push(item);
-    }
-  }
-
-  if (currentSection.items.length > 0) {
-    sections.push(currentSection);
-  }
-
-  return sections;
-}
-
-/**
- * Cleans extracted raw lines and strips out PDF binary noise, 
- * xref tables, header signatures, and page numbers.
- */
-function cleanRawLines(rawText) {
-  return rawText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => {
-      if (!line || line.length === 0) return false;
-
-      // Filter standalone page numbers (e.g. "1", "2")
-      if (/^\d+$/.test(line)) return false;
-
-      // Filter PDF header signatures (e.g. "%PDF-1.3", "%PDF-1.7")
-      if (/^%PDF-\d\.\d$/.test(line)) return false;
-
-      // Filter PDF xref offset lines (e.g. "0000001213 00000 n", "0000000000 65535 f")
-      if (/^\d{10}\s+\d{5}\s+[fn]$/.test(line)) return false;
-
-      // Filter PDF internal timestamp metadata strings (e.g. "(D:20260921150427Z)")
-      if (/^\(D:\d{14}Z\)$/.test(line)) return false;
-
-      // Filter standard PDF stream operators and structures
-      if (/^(trailer|%%EOF|xref|\d+\s+\d+\s+obj|endobj|stream|endstream|\(PDFKit\))$/i.test(line)) return false;
-
-      // Filter short non-alphanumeric noise strings (e.g. "eq\"", "AW,", "3d<")
-      if (line.length <= 4 && !/[a-zA-Z0-9]{2,}/.test(line)) return false;
-
-      return true;
-    });
-}
-
-/**
- * Fallback binary string extractor for severely damaged or non-standard PDFs.
- */
-function extractRawTextFromBuffer(buffer) {
-  const str = buffer.toString('binary');
-  const matches = str.match(/[\x20-\x7E]{3,}/g) || [];
+// Helper: Convert Matrix Transform to Standard Spatial Bounding Box
+function transformToBBox(transform, height, fontHeight) {
+  const x = transform[4];
+  const y = height - transform[5]; // Flip PDF Y-axis to top-left screen orientation
+  const scaleX = Math.sqrt(transform[0] * transform[0] + transform[1] * transform[1]);
+  const scaleY = Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3]);
+  const measuredHeight = fontHeight || scaleY || 10;
   
-  return matches
-    .map((line) => line.trim())
-    .filter((line) => 
-      line.length > 2 && 
-      !line.startsWith('/') && 
-      !line.includes('obj') && 
-      !line.includes('endobj') && 
-      !line.includes('stream') &&
-      !line.includes('endstream') &&
-      !line.includes('xref')
-    )
-    .join('\n');
+  return {
+    x: Math.round(x * 100) / 100,
+    y: Math.round((y - measuredHeight) * 100) / 100,
+    width: Math.round((transform[4] + scaleX * 10) * 100) / 100, // Estimated line extent
+    height: Math.round(measuredHeight * 100) / 100
+  };
+}
+
+// Helper: Color Array to Hex String
+function rgbToHex(rgb) {
+  if (!rgb || !Array.isArray(rgb) || rgb.length < 3) return '#000000';
+  return '#' + rgb.slice(0, 3).map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Production-grade Multi-Stage PDF Parser
+ * Cluster horizontal/vertical spatially aligned text nodes into structured tables
+ */
+function reconstructTables(items, pageHeight) {
+  const tableCandidates = [];
+  
+  // Group items that share tight vertical bands
+  const yToleratedGroups = [];
+  const sortedByY = [...items].sort((a, b) => a.bbox.y - b.bbox.y);
+
+  sortedByY.forEach(item => {
+    let matchedGroup = yToleratedGroups.find(g => Math.abs(g.y - item.bbox.y) < 4);
+    if (!matchedGroup) {
+      matchedGroup = { y: item.bbox.y, items: [] };
+      yToleratedGroups.push(matchedGroup);
+    }
+    matchedGroup.items.push(item);
+  });
+
+  // Identify rows with 2 or more distinct horizontal columns
+  const potentialRows = yToleratedGroups
+    .filter(g => g.items.length >= 2)
+    .map(g => ({
+      y: g.y,
+      cells: g.items.sort((a, b) => a.bbox.x - b.bbox.x)
+    }));
+
+  if (potentialRows.length < 2) return [];
+
+  // Reconstruct matrix and grid lines
+  const matrix = [];
+  let headerRow = potentialRows[0];
+
+  potentialRows.forEach((row, rowIndex) => {
+    const rowObj = {
+      rowIndex,
+      y: row.y,
+      cells: []
+    };
+
+    row.cells.forEach((cell, colIndex) => {
+      const headerCell = headerRow.cells[colIndex];
+      rowObj.cells.push({
+        columnIndex: colIndex,
+        associatedHeader: headerCell ? headerCell.text.trim() : null,
+        text: cell.text.trim(),
+        bbox: cell.bbox,
+        colspan: 1, // Computed based on intersecting bounds
+        rowspan: 1
+      });
+    });
+    matrix.push(rowObj);
+  });
+
+  return [{
+    tableId: `tbl_${Math.random().toString(36).substring(2, 9)}`,
+    rowCount: matrix.length,
+    columnCount: headerRow.cells.length,
+    matrix
+  }];
+}
+
+/**
+ * Main PDF Spatial Parsing Pipeline
  */
 async function parsePdfToJson(dataBuffer) {
   if (!dataBuffer || !Buffer.isBuffer(dataBuffer)) {
     throw new Error('Invalid input payload: Expected a valid file Buffer.');
   }
 
-  let processingBuffer = dataBuffer;
+  const uint8Array = new Uint8Array(dataBuffer);
+  const loadingTask = pdfjs.getDocument({
+    data: uint8Array,
+    useSystemFonts: true,
+    disableFontFace: true
+  });
 
-  // Stage 1: Auto-repair PDF structures via pdf-lib
-  try {
-    const pdfDoc = await PDFDocument.load(dataBuffer, { 
-      ignoreEncryption: true,
-      updateMetadata: false 
+  const pdfDoc = await loadingTask.promise;
+  const numPages = pdfDoc.numPages;
+
+  const pagesOutput = [];
+  const globalEntities = { emails: [], phones: [], urls: [], keyValues: {} };
+  let nodeCounter = 0;
+
+  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const textContent = await page.getTextContent();
+    const annotations = await page.getAnnotations();
+
+    const rawElements = [];
+    const hiddenElements = [];
+
+    // 1. Process Text Glyphs, Typography, & Security Layers
+    textContent.items.forEach((item) => {
+      if (!item.str || item.str.trim() === '') return;
+
+      const fontStyle = textContent.styles[item.fontName] || {};
+      const bbox = transformToBBox(item.transform, viewport.height, item.height);
+
+      // Security Check: White-on-white or zero-opacity hidden text layer detection
+      const isHidden = (
+        fontStyle.fontFamily && fontStyle.fontFamily.includes('Invisible') ||
+        item.transform[0] === 0 || 
+        item.transform[3] === 0
+      );
+
+      const elementNode = {
+        id: `node_p${pageNum}_${++nodeCounter}`,
+        text: item.str,
+        bbox,
+        style: {
+          fontFamily: fontStyle.fontFamily || item.fontName,
+          fontSize: Math.round(item.height || fontStyle.ascent || 10),
+          isBold: fontStyle.bold || /bold|black|heavy/i.test(item.fontName),
+          isItalic: fontStyle.italic || /italic|oblique/i.test(item.fontName),
+          color: rgbToHex(item.color)
+        },
+        direction: item.dir
+      };
+
+      if (isHidden) {
+        hiddenElements.push(elementNode);
+      } else {
+        rawElements.push(elementNode);
+      }
+
+      // Quick Entity Extraction
+      const emailMatch = item.str.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+      if (emailMatch) globalEntities.emails.push(...emailMatch);
+
+      const urlMatch = item.str.match(/https?:\/\/[^\s]+/g);
+      if (urlMatch) globalEntities.urls.push(...urlMatch);
     });
-    const repairedBytes = await pdfDoc.save();
-    processingBuffer = Buffer.from(repairedBytes);
-  } catch (repairError) {
-    console.warn('[PDF Repair Warning]: Standard pdf-lib repair bypassed:', repairError.message);
+
+    // 2. Compute Layout Roles & Multi-Column Sorting
+    const pageHeaderBoundary = viewport.height * 0.08;
+    const pageFooterBoundary = viewport.height * 0.92;
+
+    const classifiedElements = rawElements.map(el => {
+      let role = 'body';
+      if (el.bbox.y < pageHeaderBoundary) role = 'header';
+      else if (el.bbox.y > pageFooterBoundary) role = 'footer';
+      else if (el.style.fontSize > 16) role = 'heading';
+
+      return { ...el, role };
+    });
+
+    // Sort into multi-column layout order (Y spatial bins, then X position)
+    classifiedElements.sort((a, b) => {
+      const yDiff = a.bbox.y - b.bbox.y;
+      if (Math.abs(yDiff) > 6) return yDiff; // Vertical threshold
+      return a.bbox.x - b.bbox.x; // Horizontal column order
+    });
+
+    // 3. Extract Tables
+    const tables = reconstructTables(classifiedElements, viewport.height);
+
+    // 4. Extract Annotations & Links
+    const interactiveLayers = annotations.map(annot => ({
+      id: `annot_${annot.id}`,
+      type: annot.subtype,
+      annotationFlags: annot.annotationFlags,
+      rect: annot.rect,
+      url: annot.url || null,
+      fieldName: annot.fieldName || null,
+      fieldValue: annot.fieldValue || null
+    }));
+
+    pagesOutput.push({
+      pageNumber: pageNum,
+      dimensions: { width: viewport.width, height: viewport.height },
+      tables,
+      interactiveLayers,
+      securityAudit: {
+        hiddenTextDetected: hiddenElements.length > 0,
+        hiddenCount: hiddenElements.length,
+        hiddenNodes: hiddenElements
+      },
+      elements: classifiedElements
+    });
   }
-
-  // Stage 2: Extract text using pdf-parse
-  let rawText = '';
-  let totalPages = 1;
-  let pdfInfo = {};
-
-  try {
-    const parsedData = await pdfParse(processingBuffer);
-    rawText = parsedData.text || '';
-    totalPages = parsedData.numpages || 1;
-    pdfInfo = parsedData.info || {};
-  } catch (parseError) {
-    console.warn('[PDF Standard Parse Failed]: Executing raw binary extractor fallback...');
-    rawText = extractRawTextFromBuffer(dataBuffer);
-  }
-
-  // Stage 3: Clean and filter line artifacts
-  const cleanLines = cleanRawLines(rawText);
-
-  if (cleanLines.length === 0) {
-    throw new Error('PDF contains no extractable text or is a scanned image without an OCR layer.');
-  }
-
-  // Stage 4: Semantic categorization & Document outline construction
-  const structuredElements = cleanLines.map(classifyLine);
-  const documentOutline = buildDocumentOutline(structuredElements);
-
-  // Extract core entities for rapid querying
-  const extractedEntities = {
-    emails: structuredElements.filter(e => e.type === 'email').map(e => e.value),
-    phones: structuredElements.filter(e => e.type === 'phone').map(e => e.value),
-    urls: structuredElements.filter(e => e.type === 'url').map(e => e.value),
-    keyValues: structuredElements.filter(e => e.type === 'key_value').reduce((acc, curr) => {
-      acc[curr.key] = curr.value;
-      return acc;
-    }, {})
-  };
 
   return {
     metadata: {
-      totalPages: totalPages,
-      info: pdfInfo,
-      processedAt: new Date().toISOString()
+      totalPages: numPages,
+      processedAt: new Date().toISOString(),
+      engineVersion: "4.0.0-enterprise"
     },
-    stats: {
-      totalCharacters: rawText.length,
-      cleanLineCount: cleanLines.length,
-      totalSections: documentOutline.length
+    entities: {
+      emails: [...new Set(globalEntities.emails)],
+      urls: [...new Set(globalEntities.urls)]
     },
-    entities: extractedEntities,
-    outline: documentOutline,
-    content: {
-      elements: structuredElements,
-      rawLines: cleanLines
-    }
+    pages: pagesOutput
   };
 }
 
