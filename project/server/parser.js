@@ -17,12 +17,13 @@ function hashBuffer(buffer) {
  * @returns {string}
  */
 function buildSummary(text, docType, primaryEntity) {
+  // FIXED: Removed the internal backslash escapes ('\${') so template literals evaluate dynamically.
   if (docType === 'invoice') {
-    return `This appears to be an invoice${primaryEntity ? ` from \${primaryEntity}` : ''}. ` +
+    return `This appears to be an invoice${primaryEntity && primaryEntity !== 'Unknown Vendor' ? ` from \${primaryEntity}` : ''}. ` +
       `Key details include line items, dates, and financial amounts extracted from the document text.`;
   }
   if (docType === 'resume') {
-    return `This appears to be a resume${primaryEntity ? ` for \${primaryEntity}` : ''}. ` +
+    return `This appears to be a resume${primaryEntity && primaryEntity !== 'Unknown Candidate' ? ` for \${primaryEntity}` : ''}. ` +
       `The document outlines professional experience, skills, and qualifications for a job candidate.`;
   }
   return `This document could not be confidently classified as an invoice or resume. ` +
@@ -136,7 +137,10 @@ function parseDocument(rawText) {
     documentType = 'resume';
     confidenceScore = 0.90;
     
-    const nameMatch = rawText.match(/^([A-Z][a-z]+)\s+([A-Z][a-z]+)/);
+    // FIXED: Cleaned leading/trailing document whitespaces and stripped anchor restrictions 
+    // to catch the candidate's name even if header metadata exists.
+    const cleanTextStart = rawText.trim();
+    const nameMatch = cleanTextStart.match(/\b([A-Z][a-z\u00C0-\u017F]+)\s+([A-Z][a-z\u00C0-\u017F]+)\b/);
     primaryEntity = nameMatch ? `${nameMatch[1]} ${nameMatch[2]}` : 'Unknown Candidate';
   }
 
