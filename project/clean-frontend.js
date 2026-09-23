@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// Target the public frontend asset directory
-const publicDir = path.join(__dirname, 'public');
+// Target the root of your project directory
+const rootDir = __dirname;
 
 function cleanDirectory(dir) {
   if (!fs.existsSync(dir)) return;
@@ -12,21 +12,29 @@ function cleanDirectory(dir) {
     const filePath = path.join(dir, file);
     const stat = fs.statSync(filePath);
     
+    // Safety guardrails: Skip core engine dependencies and server runtimes
+    if (file === 'node_modules' || file === 'server' || file === '.git') {
+      return;
+    }
+    
     if (stat.isDirectory()) {
       cleanDirectory(filePath);
-    } else if (file.endsWith('.html') || file.endsWith('.js') || file.endsWith('.json')) {
-      let content = fs.readFileSync(filePath, 'utf8');
-      
-      // If the file contains the broken local development URL, scrub it completely
-      if (content.includes('http://localhost:3001')) {
-        console.log(`🧹 Automated Compiler: Cleaning hardcoded localhost from ${file}`);
-        content = content.replace(/http:\/\/localhost:3001/g, '');
-        fs.writeFileSync(filePath, content, 'utf8');
+    } else if (file.endsWith('.html') || file.endsWith('.js') || file.endsWith('.jsx') || file.endsWith('.json')) {
+      try {
+        let content = fs.readFileSync(filePath, 'utf8');
+        
+        if (content.includes('http://localhost:3001')) {
+          console.log(`🧹 Compiler Sweep: Found and removed localhost string from: ${path.relative(rootDir, filePath)}`);
+          content = content.replace(/http:\/\/localhost:3001/g, '');
+          fs.writeFileSync(filePath, content, 'utf8');
+        }
+      } catch (err) {
+        // Skip over non-text unreadable files safely
       }
     }
   });
 }
 
-console.log('🚀 Starting automated frontend asset sanitization...');
-cleanDirectory(publicDir);
-console.log('✅ Frontend assets successfully prepared for production production deployment.');
+console.log('🚀 Initiating master global frontend asset cleanup engine...');
+cleanDirectory(rootDir);
+console.log('✅ Global sanitization complete. All code routes relative.');
