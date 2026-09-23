@@ -64,7 +64,9 @@
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
 
+    /* Label wrapper handles clicking natively without JS glitches */
     .drop-zone {
+      display: block;
       border: 2px dashed var(--border-color);
       border-radius: 8px;
       padding: 2.5rem;
@@ -169,12 +171,13 @@
 
     <div class="card">
       <form id="uploadForm">
-        <div class="drop-zone" id="dropZone">
+        <!-- Using label[for="fileInput"] gives native, bug-free click handling -->
+        <label for="fileInput" class="drop-zone" id="dropZone">
           <strong>Drag & drop your PDF file here</strong>
-          <p>or click to browse files (Max size: 10MB)</p>
+          <p>or click anywhere in this box to browse files (Max size: 10MB)</p>
           <input type="file" id="fileInput" accept="application/pdf" />
           <p id="fileName" style="font-weight: 600; color: var(--accent-color); margin-top: 0.75rem;"></p>
-        </div>
+        </label>
         <button type="submit" class="btn" id="submitBtn" disabled>Parse PDF</button>
       </form>
       <div id="statusMessage" class="status"></div>
@@ -199,9 +202,7 @@
     const statusMessage = document.getElementById('statusMessage');
     const copyBtn = document.getElementById('copyBtn');
 
-    // Drag and Drop triggers
-    dropZone.addEventListener('click', () => fileInput.click());
-
+    // Drag and Drop Visual Feedback
     dropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
       dropZone.classList.add('dragover');
@@ -220,12 +221,13 @@
       }
     });
 
+    // Native file change handler
     fileInput.addEventListener('change', handleFileSelected);
 
     function handleFileSelected() {
       const file = fileInput.files[0];
       if (file) {
-        if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
           showStatus('Please select a valid PDF file.', 'error');
           submitBtn.disabled = true;
           return;
@@ -241,7 +243,7 @@
       statusMessage.className = `status ${type}`;
     }
 
-    // Handle API submit request
+    // Submit API Request
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const file = fileInput.files[0];
@@ -278,7 +280,7 @@
       }
     });
 
-    // Copy to clipboard
+    // Copy to Clipboard Action
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(jsonOutput.textContent).then(() => {
         const originalText = copyBtn.textContent;
