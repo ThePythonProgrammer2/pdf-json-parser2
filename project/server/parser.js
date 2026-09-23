@@ -2,44 +2,61 @@
 const pdfParse = require('pdf-parse');
 
 /**
- * Extracts text and metadata from a PDF file buffer.
- * @param {Buffer} dataBuffer - The PDF file in memory
- * @returns {Promise<Object>} Formatted JSON payload containing text and structure
+ * Custom options for pdf-parse to prevent default test file loading bugs
+ */
+const parseOptions = {
+  // Return standard page text
+  pagerender: function(pageData) {
+    return pageData.getTextContent().then(function(textContent) {
+      let lastY, text = '';
+      for (let item of textContent.items) {
+        if (lastY == item.transform[5] || !lastY) {
+          text += item.str;
+        } else {
+          text += '\n' + item.str;
+        }
+        lastY = item.transform[5];
+      }
+      return text;
+    });
+  }
+};
+
+/**
+ * Parses a PDF Buffer into structured JSON
+ * @param {Buffer} dataBuffer 
+ * @returns {Promise<Object>}
  */
 async function parsePdfToJson(dataBuffer) {
-  if (!dataBuffer || !(dataBuffer instanceof Buffer)) {
-    throw new Error('Invalid payload: Expected a valid PDF file buffer.');
+  if (!dataBuffer || !Buffer.isBuffer(dataBuffer)) {
+    throw new Error('Invalid input: Expected a valid Buffer object.');
   }
 
   try {
-    // Parse PDF buffer
-    const parsedData = await pdfParse(dataBuffer);
+    const data = await pdfParse(dataBuffer, parseOptions);
 
-    // Clean and normalize extracted text
-    const rawText = parsedData.text || '';
+    const rawText = data.text || '';
     const lines = rawText
       .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
 
     return {
       metadata: {
-        totalPages: parsedData.numpages || 0,
-        info: parsedData.info || {},
-        version: parsedData.version || 'unknown'
+        totalPages: data.numpages || 0,
+        info: data.info || {},
+        version: data.version || '1.0'
       },
-      summary: {
+      stats: {
         totalCharacters: rawText.length,
         totalLines: lines.length
       },
-      content: {
-        rawText: rawText,
-        lines: lines
-      }
+      text: rawText,
+      lines: lines
     };
   } catch (error) {
-    console.error('[PDF Parser Error]:', error.message);
-    throw new Error(`Failed to parse PDF document: ${error.message}`);
+    console.error('[pdf-parse engine error]:', error);
+    throw new Error(`PDF Parsing failed: ${error.message || error}`);
   }
 }
 
