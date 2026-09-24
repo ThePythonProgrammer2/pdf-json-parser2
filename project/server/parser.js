@@ -1,13 +1,30 @@
+// server/parser.js
+
+// Polyfill missing browser DOM elements before requiring pdfjs-dist
+// This cleanly suppresses node-canvas warnings in headless server environments
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor() {
+      this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+    }
+  };
+}
+
+if (typeof globalThis.Path2D === 'undefined') {
+  globalThis.Path2D = class Path2D {};
+}
+
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 
-/**
- * Enterprise Document AI Parser Engine
- */
+// Disable external worker threads for Node execution
+pdfjs.GlobalWorkerOptions.workerSrc = '';
 
-// Helper: Convert Matrix Transform to Standard Spatial Bounding Box
-function transformToBBox(transform, height, fontHeight) {
+/**
+ * Helper: Convert Matrix Transform to Standard Spatial Bounding Box (top-left orientation)
+ */
+function transformToBBox(transform, pageHeight, fontHeight) {
   const x = transform[4];
-  const y = height - transform[5]; // Flip PDF Y-axis to top-left screen orientation
+  const y = pageHeight - transform[5]; // Invert Y-axis from PDF bottom-left to web top-left
   const scaleX = Math.sqrt(transform[0] * transform[0] + transform[1] * transform[1]);
   const scaleY = Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3]);
   const measuredHeight = fontHeight || scaleY || 10;
@@ -15,27 +32,27 @@ function transformToBBox(transform, height, fontHeight) {
   return {
     x: Math.round(x * 100) / 100,
     y: Math.round((y - measuredHeight) * 100) / 100,
-    width: Math.round((transform[4] + scaleX * 10) * 100) / 100, // Estimated line extent
+    width: Math.round((scaleX * 10) * 100) / 100, // Estimated line span width
     height: Math.round(measuredHeight * 100) / 100
   };
 }
 
-// Helper: Color Array to Hex String
+/**
+ * Helper: Convert RGB values to Hex color string
+ */
 function rgbToHex(rgb) {
   if (!rgb || !Array.isArray(rgb) || rgb.length < 3) return '#000000';
   return '#' + rgb.slice(0, 3).map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Cluster horizontal/vertical spatially aligned text nodes into structured tables
+ * Cluster spatially aligned text elements into tabular grids
  */
-function reconstructTables(items, pageHeight) {
-  const tableCandidates = [];
-  
-  // Group items that share tight vertical bands
+function reconstructTables(items) {
   const yToleratedGroups = [];
   const sortedByY = [...items].sort((a, b) => a.bbox.y - b.bbox.y);
 
+  // Group elements into horizontal lines by Y coordinate threshold
   sortedByY.forEach(item => {
     let matchedGroup = yToleratedGroups.find(g => Math.abs(g.y - item.bbox.y) < 4);
     if (!matchedGroup) {
@@ -45,7 +62,7 @@ function reconstructTables(items, pageHeight) {
     matchedGroup.items.push(item);
   });
 
-  // Identify rows with 2 or more distinct horizontal columns
+  // Filter rows that contain multiple horizontal cells (columns)
   const potentialRows = yToleratedGroups
     .filter(g => g.items.length >= 2)
     .map(g => ({
@@ -55,9 +72,8 @@ function reconstructTables(items, pageHeight) {
 
   if (potentialRows.length < 2) return [];
 
-  // Reconstruct matrix and grid lines
   const matrix = [];
-  let headerRow = potentialRows[0];
+  const headerRow = potentialRows[0];
 
   potentialRows.forEach((row, rowIndex) => {
     const rowObj = {
@@ -73,7 +89,7 @@ function reconstructTables(items, pageHeight) {
         associatedHeader: headerCell ? headerCell.text.trim() : null,
         text: cell.text.trim(),
         bbox: cell.bbox,
-        colspan: 1, // Computed based on intersecting bounds
+        colspan: 1,
         rowspan: 1
       });
     });
@@ -89,7 +105,7 @@ function reconstructTables(items, pageHeight) {
 }
 
 /**
- * Main PDF Spatial Parsing Pipeline
+ * Core PDF Spatial Parsing Function
  */
 async function parsePdfToJson(dataBuffer) {
   if (!dataBuffer || !Buffer.isBuffer(dataBuffer)) {
@@ -107,28 +123,35 @@ async function parsePdfToJson(dataBuffer) {
   const numPages = pdfDoc.numPages;
 
   const pagesOutput = [];
-  const globalEntities = { emails: [], phones: [], urls: [], keyValues: {} };
+  const globalEntities = { emails: [], phones: [], urls: [] };
   let nodeCounter = 0;
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdfDoc.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.0 });
     const textContent = await page.getTextContent();
-    const annotations = await page.getAnnotations();
+    let annotations = [];
+    
+    try {
+      annotations = await page.getAnnotations();
+    } catch (e) {
+      // Graceful fallback if annotations layer is missing or unreadable
+      annotations = [];
+    }
 
     const rawElements = [];
     const hiddenElements = [];
 
-    // 1. Process Text Glyphs, Typography, & Security Layers
+    // 1. Text & Font Extraction with Security Layer Detection
     textContent.items.forEach((item) => {
       if (!item.str || item.str.trim() === '') return;
 
       const fontStyle = textContent.styles[item.fontName] || {};
       const bbox = transformToBBox(item.transform, viewport.height, item.height);
 
-      // Security Check: White-on-white or zero-opacity hidden text layer detection
+      // Security Check: Invisible rendering modes or zero-scale transforms
       const isHidden = (
-        fontStyle.fontFamily && fontStyle.fontFamily.includes('Invisible') ||
+        (fontStyle.fontFamily && fontStyle.fontFamily.includes('Invisible')) ||
         item.transform[0] === 0 || 
         item.transform[3] === 0
       );
@@ -153,42 +176,41 @@ async function parsePdfToJson(dataBuffer) {
         rawElements.push(elementNode);
       }
 
-      // Quick Entity Extraction
-      const emailMatch = item.str.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
-      if (emailMatch) globalEntities.emails.push(...emailMatch);
+      // Regex Entity Parsing
+      const emailMatches = item.str.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+      if (emailMatches) globalEntities.emails.push(...emailMatches);
 
-      const urlMatch = item.str.match(/https?:\/\/[^\s]+/g);
-      if (urlMatch) globalEntities.urls.push(...urlMatch);
+      const urlMatches = item.str.match(/https?:\/\/[^\s]+/g);
+      if (urlMatches) globalEntities.urls.push(...urlMatches);
     });
 
-    // 2. Compute Layout Roles & Multi-Column Sorting
-    const pageHeaderBoundary = viewport.height * 0.08;
-    const pageFooterBoundary = viewport.height * 0.92;
+    // 2. Spatial Layout & Role Classification
+    const headerBoundary = viewport.height * 0.08;
+    const footerBoundary = viewport.height * 0.92;
 
     const classifiedElements = rawElements.map(el => {
       let role = 'body';
-      if (el.bbox.y < pageHeaderBoundary) role = 'header';
-      else if (el.bbox.y > pageFooterBoundary) role = 'footer';
+      if (el.bbox.y < headerBoundary) role = 'header';
+      else if (el.bbox.y > footerBoundary) role = 'footer';
       else if (el.style.fontSize > 16) role = 'heading';
 
       return { ...el, role };
     });
 
-    // Sort into multi-column layout order (Y spatial bins, then X position)
+    // Multi-Column Spatial Sort (Top-to-bottom Y-bins, Left-to-right X-position)
     classifiedElements.sort((a, b) => {
       const yDiff = a.bbox.y - b.bbox.y;
-      if (Math.abs(yDiff) > 6) return yDiff; // Vertical threshold
-      return a.bbox.x - b.bbox.x; // Horizontal column order
+      if (Math.abs(yDiff) > 6) return yDiff;
+      return a.bbox.x - b.bbox.x;
     });
 
     // 3. Extract Tables
-    const tables = reconstructTables(classifiedElements, viewport.height);
+    const tables = reconstructTables(classifiedElements);
 
-    // 4. Extract Annotations & Links
+    // 4. Interactive Layer / Links Parsing
     const interactiveLayers = annotations.map(annot => ({
       id: `annot_${annot.id}`,
       type: annot.subtype,
-      annotationFlags: annot.annotationFlags,
       rect: annot.rect,
       url: annot.url || null,
       fieldName: annot.fieldName || null,
