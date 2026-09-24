@@ -32,18 +32,15 @@
         setLoading(true);
 
         const formData = new FormData();
-        // Field name matches 'pdf' in upload.single('pdf') in server/index.js
         formData.append('pdf', uploadedFile);
 
         try {
-          // Pointing directly to /api/parse
           const res = await fetch('/api/parse', { 
             method: 'POST', 
             body: formData 
           });
 
           if (!res.ok) {
-            const errorText = await res.text();
             throw new Error(`Server returned HTTP ${res.status}`);
           }
 
@@ -62,18 +59,42 @@
       };
 
       const copyToClipboard = () => {
-        navigator.clipboard.writeText(JSON.stringify(jsonResult, null, 2));
+        const contentToCopy = getFilteredData();
+        navigator.clipboard.writeText(JSON.stringify(contentToCopy, null, 2));
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       };
 
       const downloadJson = () => {
-        const blob = new Blob([JSON.stringify(jsonResult, null, 2)], { type: 'application/json' });
+        const contentToDownload = getFilteredData();
+        const blob = new Blob([JSON.stringify(contentToDownload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `parsed_${file?.name.replace('.pdf', '') || 'document'}.json`;
+        a.download = `parsed_${activeTab}_${file?.name.replace('.pdf', '') || 'document'}.json`;
         a.click();
+      };
+
+      // Helper to compute data filtered by tab view
+      const getFilteredData = () => {
+        if (!jsonResult) return null;
+        switch (activeTab) {
+          case 'tables':
+            return (jsonResult.pages || []).flatMap((p, idx) => ({
+              page: p.pageNumber,
+              tables: p.tables || []
+            }));
+          case 'entities':
+            return jsonResult.entities || {};
+          case 'security':
+            return (jsonResult.pages || []).map(p => ({
+              page: p.pageNumber,
+              securityAudit: p.securityAudit
+            }));
+          case 'all':
+          default:
+            return jsonResult;
+        }
       };
 
       return (
@@ -96,7 +117,7 @@
                   onClick={copyToClipboard} 
                   className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
                 >
-                  {copied ? '✓ Copied' : 'Copy JSON'}
+                  {copied ? '✓ Copied' : 'Copy View'}
                 </button>
                 <button 
                   onClick={downloadJson} 
@@ -178,19 +199,23 @@
                   </div>
                 </div>
 
-                {/* JSON Inspector Window */}
+                {/* Filterable JSON Inspector Window */}
                 <div className="col-span-6 border border-slate-800 bg-slate-900/40 rounded-xl p-4 flex flex-col h-[82vh] overflow-hidden">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Structured Output JSON
                     </span>
+                    
+                    {/* Filter Tabs */}
                     <div className="flex space-x-1 bg-slate-800/60 p-1 rounded-lg">
-                      {['all', 'tables', 'entities'].map((tab) => (
+                      {['all', 'tables', 'entities', 'security'].map((tab) => (
                         <button
                           key={tab}
                           onClick={() => setActiveTab(tab)}
                           className={`text-[11px] font-medium px-2.5 py-1 rounded-md capitalize transition ${
-                            activeTab === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                            activeTab === tab 
+                              ? 'bg-indigo-600 text-white shadow-sm' 
+                              : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
                           {tab}
@@ -199,9 +224,9 @@
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto mt-4 font-mono text-xs space-y-2 pr-2">
+                  <div className="flex-1 overflow-y-auto mt-4 font-mono text-xs pr-2">
                     <pre className="text-slate-300">
-                      {JSON.stringify(jsonResult, null, 2)}
+                      {JSON.stringify(getFilteredData(), null, 2)}
                     </pre>
                   </div>
                 </div>
