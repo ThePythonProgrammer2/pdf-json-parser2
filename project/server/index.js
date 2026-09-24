@@ -3,30 +3,33 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
+const applySecurity = require('./security');
+const errorHandler = require('./errorHandler');
 const { parsePdfToJson } = require('./parser');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Enable CORS & JSON payload parsing
+// 1. Apply Security Headers & Middleware
+applySecurity(app);
+
+// 2. Enable CORS & Body Parsing
 app.use(cors());
 app.use(express.json());
 
-// Serve static frontend files from /public directory
+// 3. Serve Static Frontend
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Configure Multer for in-memory file handling
-const storage = multer.memoryStorage();
+// 4. Configure Multer Upload Memory Limits
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 25 * 1024 * 1024 } // 25MB limits
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
 });
 
 /**
  * Primary PDF Parsing Endpoint
- * Matches frontend fetch field: 'pdf'
  */
-app.post('/api/parse', upload.single('pdf'), async (req, res) => {
+app.post('/api/parse', upload.single('pdf'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ 
@@ -35,7 +38,6 @@ app.post('/api/parse', upload.single('pdf'), async (req, res) => {
       });
     }
 
-    // Process PDF buffer through Document AI spatial parser
     const parsedData = await parsePdfToJson(req.file.buffer);
 
     return res.status(200).json({
@@ -43,18 +45,17 @@ app.post('/api/parse', upload.single('pdf'), async (req, res) => {
       data: parsedData
     });
   } catch (error) {
-    console.error('API Parse Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || 'An internal error occurred while parsing the document.'
-    });
+    next(error);
   }
 });
 
-// Fallback route to serve main frontend index.html
+// Fallback route for SPA single-page frontend
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
+
+// Global Centralized Error Handler
+app.use(errorHandler);
 
 // Start Express Server
 app.listen(PORT, () => {
