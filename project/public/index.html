@@ -32,19 +32,30 @@
         setLoading(true);
 
         const formData = new FormData();
-        formData.append('file', uploadedFile);
+        // Field name matches 'pdf' in upload.single('pdf') in server/index.js
+        formData.append('pdf', uploadedFile);
 
         try {
-          // Adjust API endpoint to match your server route (e.g., /api/parse or /parse)
-          const res = await fetch('/parse', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (data.success || data.data) {
-            setJsonResult(data.data || data);
+          // Pointing directly to /api/parse
+          const res = await fetch('/api/parse', { 
+            method: 'POST', 
+            body: formData 
+          });
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`Server returned HTTP ${res.status}`);
+          }
+
+          const responseData = await res.json();
+          if (responseData.success) {
+            setJsonResult(responseData.data);
           } else {
-            alert('Parsing error: ' + (data.error || 'Unknown error'));
+            alert('Parsing error: ' + (responseData.error || 'Unknown error'));
           }
         } catch (err) {
-          alert('Network error connecting to backend server.');
+          console.error('File processing error:', err);
+          alert(`Network request failed: ${err.message}`);
         } finally {
           setLoading(false);
         }
@@ -97,7 +108,7 @@
             )}
           </header>
 
-          {/* Main Layout */}
+          {/* Main Layout Workspace */}
           <main className="flex-1 flex flex-col p-6 max-w-[1800px] w-full mx-auto space-y-6">
             {!jsonResult && !loading && (
               <div 
@@ -109,27 +120,27 @@
                   📁
                 </div>
                 <h3 className="text-lg font-semibold">Drop PDF Document Here</h3>
-                <p className="text-sm text-slate-400 mt-1">Extract layout, spatial bounding boxes, tables, and styles</p>
+                <p className="text-sm text-slate-400 mt-1">Extract spatial bounding boxes, tabular grids, typography, and interactive elements</p>
               </div>
             )}
 
             {loading && (
               <div className="flex flex-col items-center justify-center my-auto space-y-4">
                 <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                <p className="font-semibold text-slate-300">Processing Document AI Pipeline...</p>
+                <p className="font-semibold text-slate-300">Executing Spatial Layout Engine...</p>
               </div>
             )}
 
             {jsonResult && (
               <div className="grid grid-cols-12 gap-6 flex-1">
-                {/* Left Side: Spatial Canvas Overlay */}
+                {/* Visual Spatial Canvas */}
                 <div className="col-span-6 border border-slate-800 bg-slate-900/40 rounded-xl p-4 flex flex-col h-[82vh] overflow-hidden">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Visual Coordinate Space
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono">
-                      {jsonResult.pages?.length || 1} Pages Detected
+                      {jsonResult.pages?.length || 1} Pages
                     </span>
                   </div>
 
@@ -167,7 +178,7 @@
                   </div>
                 </div>
 
-                {/* Right Side: Structured JSON Inspector */}
+                {/* JSON Inspector Window */}
                 <div className="col-span-6 border border-slate-800 bg-slate-900/40 rounded-xl p-4 flex flex-col h-[82vh] overflow-hidden">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
