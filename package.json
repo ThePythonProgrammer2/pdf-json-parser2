@@ -2,10 +2,10 @@
   "name": "pdf-document-parser",
   "private": true,
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
+    "start": "node server.js",
+    "dev": "node server.js",
     "build": "echo \"No build step required\"",
-    "test": "node test/server.test.js"
+    "test": "node server.test.js"
   },
   "dependencies": {
     "docling-sdk": "^2.0.6",
