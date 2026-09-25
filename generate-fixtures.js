@@ -2,10 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 
+// Create fixtures directory if it doesn't exist
+const fixturesDir = path.join(__dirname, 'fixtures');
+if (!fs.existsSync(fixturesDir)) {
+  fs.mkdirSync(fixturesDir, { recursive: true });
+}
+
 // Generate a test invoice PDF
 const doc = new PDFDocument({ size: 'A4', margin: 50 });
-const out = fs.createWriteStream(path.join(__dirname, 'fixtures', 'invoice.pdf'));
-fs.mkdirSync(path.join(__dirname, 'fixtures'), { recursive: true });
+const invoicePath = path.join(fixturesDir, 'invoice.pdf');
+const out = fs.createWriteStream(invoicePath);
 
 doc.pipe(out);
 
@@ -28,11 +34,12 @@ doc.text('Total Due:                    $1,458.00');
 doc.end();
 
 out.on('finish', () => {
-  console.log('Invoice PDF generated:', out.path);
+  console.log('Invoice PDF generated:', invoicePath);
 
   // Generate a resume PDF
   const doc2 = new PDFDocument({ size: 'A4', margin: 50 });
-  const out2 = fs.createWriteStream(path.join(__dirname, 'fixtures', 'resume.pdf'));
+  const resumePath = path.join(fixturesDir, 'resume.pdf');
+  const out2 = fs.createWriteStream(resumePath);
   doc2.pipe(out2);
 
   doc2.fontSize(20).text('Jane Doe', { align: 'center' });
@@ -53,6 +60,6 @@ out.on('finish', () => {
   doc2.end();
 
   out2.on('finish', () => {
-    console.log('Resume PDF generated:', out2.path);
+    console.log('Resume PDF generated:', resumePath);
   });
 });
