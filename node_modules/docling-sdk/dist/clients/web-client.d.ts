@@ -1,0 +1,37 @@
+import type { ConversionFileResult, ConversionOptions, ConvertDocumentResponse } from "../types/api";
+import type { DoclingWeb, SafeConversionResult, SafeFileConversionResult } from "../types/client";
+import type { DoclingWebClientConfig, ImageInput, WebClientEvents, WebOCRResult, WebProcessOptions } from "../types/web";
+export declare class DoclingWebClient implements DoclingWeb {
+    readonly type: "web";
+    private config;
+    private events;
+    private worker;
+    private isReady;
+    private isProcessing;
+    constructor(config: DoclingWebClientConfig);
+    get ready(): boolean;
+    get processing(): boolean;
+    initialize(): Promise<void>;
+    destroy(): void;
+    on<K extends keyof WebClientEvents>(event: K, callback: (data: WebClientEvents[K]) => void): this;
+    off<K extends keyof WebClientEvents>(event: K, callback: (data: WebClientEvents[K]) => void): this;
+    clearCache(): Promise<boolean>;
+    getCacheSize(): Promise<number>;
+    processImage(input: ImageInput, options?: WebProcessOptions): Promise<WebOCRResult>;
+    convert(file: Uint8Array | string, filename: string, options?: ConversionOptions): Promise<ConvertDocumentResponse>;
+    extractText(file: Uint8Array | string, filename: string, options?: Omit<ConversionOptions, "to_formats">): Promise<ConvertDocumentResponse>;
+    toHtml(file: Uint8Array | string, filename: string, options?: Omit<ConversionOptions, "to_formats">): Promise<ConvertDocumentResponse>;
+    toMarkdown(file: Uint8Array | string, filename: string, options?: Omit<ConversionOptions, "to_formats">): Promise<ConvertDocumentResponse>;
+    convertDocument(file: Uint8Array | string, filename: string, options: ConversionOptions): Promise<ConvertDocumentResponse>;
+    process(file: Uint8Array | string, filename: string, options?: ConversionOptions): Promise<ConvertDocumentResponse>;
+    convertToFile(_file: Uint8Array | string, _filename: string, _options: ConversionOptions): Promise<ConversionFileResult>;
+    safeConvert(file: Uint8Array | string, filename: string, options?: ConversionOptions): Promise<SafeConversionResult>;
+    safeConvertToFile(_file: Uint8Array | string, _filename: string, _options: ConversionOptions): Promise<SafeFileConversionResult>;
+    private ensureInitialized;
+    private createWorkerBlobUrl;
+    private processFilePages;
+    private combineResults;
+    private imageInputToDataUrl;
+    private blobToDataUrl;
+    private base64ToUint8Array;
+}
