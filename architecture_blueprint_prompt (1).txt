@@ -1,0 +1,177 @@
+# TARGET ARCHITECTURE BLUEPRINT & ENTERPRISE SYSTEM SPECIFICATION
+
+You are acting as the Lead Architect and Core Developer for the `pdf-json-parser2-premium` enterprise project. Your objective is to build a high-throughput, industrial-grade document extraction platform that accurately parses complex PDFs (such as invoices, receipts, and resumes) into highly validated, deterministic structured JSON.
+
+Below is the COMPLETE target architecture, system flow, and feature specification for our repository. Use this blueprint as your reference vision for the entire codebase.
+
+---
+
+## SYSTEM ARCHITECTURE FLOW
+
+[PDF Input] 
+     │
+     ▼
+[Go API Gateway] ──(Redis Cache Check)──► [Cache Hit: Return JSON]
+     │
+     ▼ (Cache Miss: Push to RabbitMQ/Kafka)
+[Python Worker Orchestrator]
+     │
+     ├──► [Intelligent Router] ──► (Selects best engine: Text vs. OCR vs. Form)
+     │
+     ├──► [Layout Analyzer] ─────► (Segments Header, Line-Item Grid, and Footer)
+     │
+     ├──► [Processor Pipeline] ──► (ML Classification & Entity NER Extraction)
+     │
+     ▼
+[Reconciliation Engine] ─────────► (Validates Math: Line Items + Tax == Grand Total)
+     │
+     ▼
+[Rust Cleaning Layer] ───────────► (SIMD-accelerated Text Sanitization & JSON formatting)
+     │
+     ▼
+[Response Generated & Cached]
+
+---
+
+## TARGET FILE TREE
+
+pdf-json-parser2-premium/
+│
+├── 📦 PYTHON PROCESSING CORE (AI, ML, & Orchestration)
+├── python/
+│   ├── services/
+│   │   ├── orchestrator.py          # State-machine handling worker lifecycles
+│   │   ├── intelligent_router.py    # Analyzes PDF metadata to select optimal engine
+│   │   ├── fallback_chain.py        # Cascading fallback strategy when extractions fail
+│   │   └── reconciliation_engine.py # Cross-checks math & schemas before outputting
+│   │
+│   ├── engines/
+│   │   ├── pdfplumber_engine.py     # Grid/Table native text extractor
+│   │   ├── pymupdf_engine.py        # Lightning fast text streaming & fallback
+│   │   ├── pdfrw_engine.py          # AcroForms interactive field reader
+│   │   └── pikepdf_engine.py        # Repairs corrupted/malformed structural PDF trees
+│   │
+│   ├── ocr/
+│   │   ├── vision_llm_client.py     # Direct API hook for complex multimodal parsing
+│   │   ├── paddleocr_engine.py      # Ultra-fast local parallelized layout OCR
+│   │   └── smart_ocr_selector.py    # Runs blur/contrast checks to toggle OCR models
+│   │
+│   ├── analysis/
+│   │   ├── layout_segmenter.py      # Splits documents into Header, Body, and Footer
+│   │   ├── table_detector.py        # YOLOv11/RT-DETR based boundary coordinate box mapping
+│   │   ├── ml_classifier.py         # LightGBM/XGBoost document type gating 
+│   │   └── entity_extractor.py      # Fine-tuned GLiNER/Transformer for zero-shot NER
+│   │
+│   ├── api/
+│   │   ├── app.py                   # FastAPI Application Entry
+│   │   ├── v1/
+│   │   │   ├── endpoints.py         # Parsing, status tracking, & bulk ingestion endpoints
+│   │   │   └── dependencies.py      # Rate limit configurations & auth injection
+│   │   └── schemas/
+│   │       ├── base.py              # Shared mixins (UUIDs, timestamps, floating-point rounders)
+│   │       ├── invoice.py           # Strict corporate financial data schemas
+│   │       ├── resume.py            # Academic & career structural profile schemas
+│   │       └── common.py            # Engine metadata, bounding boxes, & confidence scores
+│   │
+│   └── tests/
+│       ├── unit/                    # Testing individual analyzer boundaries
+│       ├── regression/              # Asserts bugs like "double-counting totals" never return
+│       └── profiles/                # Speed and memory allocation benchmarks
+│
+├── 🚀 RUST PERFORMANCE LAYER (Data Slicing & Cleaning)
+├── rust/
+│   ├── src/
+│   │   ├── lib.rs                   # PyO3 module bindings definition
+│   │   ├── processors/
+│   │   │   ├── text_cleaner.rs      # SIMD-accelerated regex striping & unicode flattening
+│   │   │   ├── boundary_filter.rs   # Fast array clipping when text matches cutoff phrases
+│   │   │   └── math_validator.rs    # High-speed float summation for row verification
+│   │   └── cache/
+│   │       └── bloom_filter.rs      # Sub-millisecond duplicate file block avoidance
+│   └── Cargo.toml
+│
+├── ⚡ GO HIGH-THROUGHPUT GATEWAY 
+├── go/
+│   ├── cmd/
+│   │   ├── gateway/main.go          # Ultra-low latency edge server handling API requests
+│   │   └── worker_pool/main.go      # Concurrent queue processor swallowing large file streams
+│   ├── pkg/
+│   │   ├── queue/
+│   │   │   └── rabbitmq.go          # Asynchronous job distribution layer
+│   │   ├── middleware/
+│   │   │   ├── circuit_breaker.go   # Protects Python backend from crashing during spike loads
+│   │   │   └── rate_limiter.go      # Redis-backed sliding-window token bucket 
+│   │   └── metrics/
+│   │       └── prometheus.go        # Tracks processing latency percentiles (P95, P99)
+│   └── go.mod
+│
+├── 🗄️ PLATFORM INFRASTRUCTURE & OBSERVABILITY
+├── deploy/
+│   ├── docker-compose.yml           # Local multi-container playground environment
+│   ├── kubernetes/
+│   │   ├── deployment.yaml          # Auto-scaling worker configurations
+│   │   ├── hpa.yaml                 # Scales processing pods based on queue length
+│   │   └── redis-stateful.yaml      # Distributed cache clustering deployment
+│   └── monitoring/
+│       ├── grafana_dashboards.json  # Pre-built visuals for error tracking & cache hit ratios
+│       └── open_telemetry.yaml      # Distributed tracing tracking files across Go -> Python -> Rust
+│
+└── 📋 ROOT ARCHITECTURE DEFINITIONS
+    ├── .gitignore
+    ├── README.md
+    └── pyproject.toml
+
+---
+
+## 4 CRITICAL CORE PARSING REQUIREMENTS
+
+Your implementation must strictly solve common extraction bugs using these structural architectural patterns:
+
+1. **Physical Layout Segmentation (`layout_segmenter.py`):**
+   Do not process an invoice as a single continuous text stream. The layout engine must identify and isolate the bottom footer section (containing Subtotal, Tax, and Total) away from the central line-item tabular container. The table parser must *only* evaluate the line-item container to ensure summary elements are never appended as line items.
+
+2. **Mathematical Validation Guard (`reconciliation_engine.py`):**
+   Implement a hard data-routing filter that cross-checks structural components. If the sum of individual line item prices (`total_price`) plus `tax_amount` does not mathematically balance with the grand `total_amount`, the engine must automatically lower the confidence score, drop the synchronous ruleset, and route the raw buffer to `vision_llm_client.py` for visual conflict resolution.
+
+3. **Strict Document Type Gating (`ml_classifier.py`):**
+   If financial tokens (e.g., currency symbols, "USD", "Tax", "Invoice", "Total") are heavily present, or if any financial line items are successfully mapped, the system must prevent the `document_type` from classifying as a "resume" unless an absolute 0.99 confidence override threshold is satisfied.
+
+4. **Floating-Point Precision Normalization (`base.py`):**
+   Pydantic schema properties must enforce automated decorators to catch IEEE 754 float precision anomalies. Scores or extractions such as `0.9000000000000001` must be instantly truncated and serialized to clean, standard two-decimal floats (e.g., `0.90`).
+
+---
+
+## EXECUTION CONTROLLER (STRICT RULES FOR BUILD ENGINE)
+
+⚠️ CRITICAL SAFETY RULES TO PREVENT TIMEOUTS AND CRASHES:
+1. DO NOT try to build the entire target architecture in one single execution pass.
+2. DO NOT create blank placeholder files or empty stubs across all directories.
+3. BUILD INCREMENTALLY. Focus STRICTLY on PHASE 1 below.
+4. Once Phase 1 is complete, create a file named `BUILD_LOG.md` detailing the progress, update git, and STOP execution immediately so I can review and approve before moving to Phase 2.
+
+---
+
+## CURRENT TARGET: PHASE 1 ONLY
+
+Implement ONLY the following foundational components in this turn:
+
+1. **Repository Base Setup**:
+   - Create `.gitkeep` files for the core scaffolding directories (`python/`, `python/engines/`, `python/api/`, `python/api/schemas/`, `python/tests/`).
+   - Create `python/requirements.txt` containing dependencies: `fastapi`, `uvicorn`, `pdfplumber`, `pydantic`, `pytest`.
+   - Create `python/pyproject.toml`.
+
+2. **Primary Extraction Engine (`pdfplumber_engine.py`)**:
+   - Create `python/engines/pdfplumber_engine.py`.
+   - Functionality: Open a PDF file path or bytes, extract structured text page-by-page, isolate tables into a clean layout dict array, and handle foundational processing exceptions gracefully.
+
+3. **Data Models (`python/api/schemas/base.py` & `common.py`)**:
+   - Define baseline Pydantic models for structured output, incorporating custom field validators that explicitly round floats and confidence metrics to two decimal places. Ensure schemas support `PageContent`, `ExtractedTable`, `ExtractionResult`, and `EngineMetadata`.
+
+4. **Unit & Regression Test (`python/tests/test_pdfplumber_engine.py`)**:
+   - Write a unit test validating that `pdfplumber_engine.py` successfully reads a mock stream into the Pydantic schemas without precision loss or data truncation.
+
+5. **Progress Log (`BUILD_LOG.md`)**:
+   - Create `BUILD_LOG.md` detailing Phase 1 completions and specifying milestones ahead for Phase 2.
+
+**STOP CRITERIA**:
+As soon as the Phase 1 files (`requirements.txt`, `pyproject.toml`, `pdfplumber_engine.py`, `base.py`, `common.py`, `test_pdfplumber_engine.py`, and `BUILD_LOG.md`) are written and validated, STOP execution immediately and wait for my direct confirmation to proceed to Phase 2.
