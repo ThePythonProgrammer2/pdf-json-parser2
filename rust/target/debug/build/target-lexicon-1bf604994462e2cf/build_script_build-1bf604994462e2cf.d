@@ -1,0 +1,8 @@
+/workspaces/pdf-json-parser2/rust/target/debug/build/target-lexicon-1bf604994462e2cf/build_script_build-1bf604994462e2cf.d: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/build.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs
+
+/workspaces/pdf-json-parser2/rust/target/debug/build/target-lexicon-1bf604994462e2cf/build_script_build-1bf604994462e2cf: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/build.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs
+
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/build.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/data_model.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/triple.rs:
+/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/target-lexicon-0.13.5/src/targets.rs:
