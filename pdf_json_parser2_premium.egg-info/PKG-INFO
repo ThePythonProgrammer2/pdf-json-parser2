@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: pdf-json-parser2-premium
+Version: 0.1.0
+Summary: Enterprise multi-engine PDF-to-JSON extraction service
+Author: Lead Architect
+License: MIT
+Requires-Python: >=3.10
+Requires-Dist: fastapi<1.0.0,>=0.110.0
+Requires-Dist: uvicorn[standard]<1.0.0,>=0.27.0
+Requires-Dist: pdfplumber<1.0.0,>=0.11.0
+Requires-Dist: pydantic<3.0.0,>=2.6.0
+Provides-Extra: dev
+Requires-Dist: pytest<9.0.0,>=8.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: httpx>=0.28.0; extra == "dev"

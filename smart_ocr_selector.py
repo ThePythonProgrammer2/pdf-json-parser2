@@ -56,43 +56,41 @@ def list_available_engines() -> list[OcrEngineInfo]:
 
 
 def select_engine(
-    image_quality: str = "unknown",
+    image_quality: str | dict = "unknown",
     multilingual: bool = False,
     prefer_speed: bool = False,
 ) -> str | None:
     """Select the best OCR engine based on requirements.
 
-    Args:
-        image_quality: "high", "medium", "low", or "unknown".
-        multilingual: Whether multilingual support is needed.
-        prefer_speed: Whether to prioritize speed over accuracy.
-
-    Returns:
-        Engine name string, or None if no engines are available.
+    Accepts the legacy keyword arguments as well as a lightweight dict context
+    from newer phase-3 wrappers (for example, {"has_text": False, "is_scanned": True}).
     """
+    context = {}
+    if isinstance(image_quality, dict):
+        context = image_quality
+        image_quality = "low" if context.get("is_scanned") or not context.get("has_text", True) else "unknown"
+        multilingual = bool(context.get("multilingual", multilingual))
+        prefer_speed = bool(context.get("prefer_speed", prefer_speed))
+
     available = list_available_engines()
     if not available:
         return None
 
     if multilingual:
-        # EasyOCR has the best multilingual support
         for engine in available:
             if engine.name == "easyocr":
                 return "easyocr"
 
     if prefer_speed:
-        # PaddleOCR is the fastest
         for engine in available:
             if engine.name == "paddleocr":
                 return "paddleocr"
 
     if image_quality == "low":
-        # Deep learning models handle low quality better
         for engine in available:
             if engine.name == "easyocr":
                 return "easyocr"
 
-    # Default: return highest priority available engine
     return available[0].name if available else None
 
 
