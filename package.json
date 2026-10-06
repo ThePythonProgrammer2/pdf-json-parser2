@@ -5,7 +5,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "build": "echo \"No build step required\"",
-    "test": "node server.test.js"
+    "test": "node --test parser.test.js && node server.test.js"
   },
   "dependencies": {
     "docling-sdk": "^2.0.6",

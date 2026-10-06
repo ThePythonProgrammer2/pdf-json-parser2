@@ -1,0 +1,11 @@
+import { DoclingWebClient } from "./clients/web-client";
+import type { DoclingWebClientConfig } from "./types/web";
+export { DoclingWebClient };
+export declare function createWebClient(options?: Partial<Omit<DoclingWebClientConfig, "type">>): DoclingWebClient;
+export declare function isWebClient(client: unknown): client is DoclingWebClient;
+export { DoclingConverter, doclingToHtml, doclingToMarkdown, doclingToPlainText, doclingToJson, } from "./web/converters";
+export { extractTables, tableToCSV, tablesToCSV, extractOverlays, } from "./web/extractors";
+export { clearModelCache, getModelCacheSize, } from "./web/cache";
+export { renderPdfToImages } from "./web/pdf-renderer";
+export type { DoclingWebClientConfig, DoclingWebConfig, WebOCRResult, WebOCRDocument, WebOCRTextItem, WebOCRTableItem, WebOCRPictureItem, WebOCRGroupItem, WebOCRPageItem, WebOCRBaseItem, WebOCRRefItem, WebOCRContentItem, WebOCRBoundingBox, WebOCRProvenanceItem, WebOCRTableCell, WebOCRTableData, ExtractedTable, ElementOverlay, ImageInput, WebProcessOptions, WebClientEvents, LoadingProgress, StreamChunk, StatusReport, WebClientError, WorkerMessageToWorker, WorkerMessageFromWorker, RenderedPage, } from "./types/web";
+export type { DoclingWeb } from "./types/client";

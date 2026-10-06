@@ -5,7 +5,12 @@ function hashBuffer(buffer) {
 }
 
 function cleanText(text) {
-  return String(text || '').replace(/\r/g, '').replace(/[ \t]+/g, ' ').trim();
+  return String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .trim();
 }
 
 function detectCurrency(text) {
@@ -61,29 +66,44 @@ function extractAmounts(text) {
 }
 
 function extractFinancials(text) {
-  const result = { totalAmount: null, taxAmount: null };
-  
-  const total = text.match(/(?:grand\s+total|total\s+due|amount\s+due|balance\s+due|total)\s*[:=-]?\s*[$€£₹]?\s*([\d,]+(?:\.\d{1,2})?)/i);
-  const tax = text.match(/(?:tax|vat|gst|sales\s+tax)\s*(?:\([^)]*\))?\s*[:=-]?\s*[$€£₹]?\s*([\d,]+(?:\.\d{1,2})?)/i);
-  
-  if (total) {
-    const val = numberFrom(total[1]);
-    if (val !== null && val >= 10) result.totalAmount = val;
+  const lines = text.split('\n');
+  const totalAmount = extractLabelledAmount(
+    lines,
+    /^\s*(?:grand\s+total|total\s+due|amount\s+due|balance\s+due)\b/i,
+  ) ?? extractLabelledAmount(lines, /^\s*total\b/i);
+  const taxAmount = extractLabelledAmount(
+    lines,
+    /^\s*(?:sales\s+tax|tax|vat|gst)\b/i,
+  );
+
+  return {
+    totalAmount: totalAmount !== null && totalAmount >= 10 ? totalAmount : null,
+    taxAmount,
+  };
+}
+
+function extractLabelledAmount(lines, labelPattern) {
+  for (const line of lines) {
+    const label = line.match(labelPattern);
+    if (!label) continue;
+
+    const remainder = line.slice(label.index + label[0].length);
+    const currencyAmounts = [...remainder.matchAll(/[$€£¥₹]\s*([\d,]+(?:\.\d{1,2})?)/g)];
+    const amounts = currencyAmounts.length
+      ? currencyAmounts.map(match => match[1])
+      : [...remainder.matchAll(/(\d[\d,]*(?:\.\d{1,2})?)(?![\d,]|\s*%)/g)]
+        .map(match => match[1]);
+    if (amounts.length) return numberFrom(amounts[amounts.length - 1]);
   }
-  
-  if (tax) {
-    const val = numberFrom(tax[1]);
-    if (val !== null && val >= 0) result.taxAmount = val;
-  }
-  
-  return result;
+
+  return null;
 }
 
 function extractEntity(text, type) {
   const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 2);
   
   // Look for explicit labels
-  const labelled = text.match(/(?:from|vendor|seller|company|employer|name|bill\s+to|billed\s+to)\s*[:=-]\s*([^\n]+)/i);
+  const labelled = text.match(/(?:from|vendor|seller|company|employer)\s*[:=-]\s*([^\n]+)/i);
   if (labelled) {
     const entity = labelled[1].trim().slice(0, 100);
     if (entity.length > 2) return entity;
@@ -102,6 +122,9 @@ function extractEntity(text, type) {
   if (type === 'invoice') {
     const firstLine = lines.find(line => !/invoice|date|ref|page|bill|from|to/i.test(line) && line.length > 5 && line.length < 80);
     if (firstLine) return firstLine;
+
+    const billedTo = text.match(/(?:bill\s+to|billed\s+to)\s*[:=-]\s*([^\n]+)/i);
+    if (billedTo) return billedTo[1].trim().slice(0, 100);
   }
   
   return null;
@@ -115,7 +138,7 @@ function extractItems(text) {
     if (skip.test(line)) continue;
     if (line.length < 5) continue;
     
-    // Look for lines with price at end: "Description  $123.45"
+    // Look for table rows with a description and a price at the end.
     const match = line.match(/^(.+?)\s{2,}[$€£₹]?\s*([\d,]+(?:\.\d{1,2})?)\s*$/);
     if (!match) continue;
     
@@ -190,18 +213,7 @@ function parseDocument(input) {
 
   const classification = classify(text);
   const financials = extractFinancials(text);
-  const amounts = extractAmounts(text);
-  let items = extractItems(text);
-  
-  // Only include fallback amounts if we found meaningful ones (>= 10)
-  if (!items.length && amounts.length) {
-    items = amounts.slice(0, 20).map((entry, index) => ({
-      description: `Line item ${index + 1}`,
-      quantity: null,
-      unit_price: null,
-      total_price: entry.amount,
-    }));
-  }
+  const items = extractItems(text);
 
   const entity = extractEntity(text, classification.type);
   

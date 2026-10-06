@@ -2,6 +2,7 @@ require('dotenv').config();
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const assert = require('assert').strict;
 const app = require('./index');
 
 const server = app.listen(0, async () => {
@@ -55,6 +56,27 @@ const server = app.listen(0, async () => {
     console.log('Test 3 (invoice PDF):', res3.statusCode, res3.body.substring(0, 600));
     assertJsonField(res3, 'document_type', 'invoice');
     assertJsonField(res3, 'parsed_by', 'rules');
+    assertJsonField(res3, 'primary_entity', 'Acme Corp LLC');
+    const parsedInvoice = JSON.parse(res3.body);
+    assert.deepStrictEqual(parsedInvoice.financials, {
+      total_amount: 1458,
+      currency: 'USD',
+      tax_amount: 108,
+    });
+    assert.deepStrictEqual(parsedInvoice.extracted_items, [
+      {
+        description: 'Web Development Service',
+        quantity: null,
+        unit_price: null,
+        total_price: 1200,
+      },
+      {
+        description: 'Hosting Setup',
+        quantity: null,
+        unit_price: null,
+        total_price: 150,
+      },
+    ]);
 
     // Test 7: Cache hit (same invoice)
     const res4 = await makeRequest(port, '/api/v1/parse-document', 'POST', invoiceBody, {
