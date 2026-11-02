@@ -13,10 +13,20 @@ const { sendError, ERROR_CODES } = require('./errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const STARTED_AT = Date.now();
 
 // --- In-memory cache keyed by file content hash ---
 const parseCache = new Map();
 const MAX_CACHE_SIZE = 100;
+const metricsState = {
+  requestCount: 0,
+  lastRequestAt: null,
+};
+
+function recordRequest() {
+  metricsState.requestCount += 1;
+  metricsState.lastRequestAt = new Date().toISOString();
+}
 
 /**
  * Adds a result to the cache, evicting the oldest entry if at capacity.
@@ -53,10 +63,26 @@ app.use(express.static(__dirname));
 
 // --- Health check ---
 app.get('/api/v1/health', (req, res) => {
+  recordRequest();
   res.json({
     status: 'ok',
     cacheSize: parseCache.size,
     docling: isDoclingConfigured(),
+    requestCount: metricsState.requestCount,
+    lastRequestAt: metricsState.lastRequestAt,
+  });
+});
+
+app.get('/api/v1/metrics', (req, res) => {
+  recordRequest();
+  res.json({
+    status: 'ok',
+    cacheSize: parseCache.size,
+    queueDepth: parseCache.size,
+    requestCount: metricsState.requestCount,
+    docling: isDoclingConfigured(),
+    lastRequestAt: metricsState.lastRequestAt,
+    uptimeMs: Date.now() - STARTED_AT,
   });
 });
 
@@ -80,6 +106,7 @@ app.get('/api/v1/docling-status', async (req, res) => {
 
 // --- Main parsing endpoint ---
 app.post('/api/v1/parse-document', (req, res) => {
+  recordRequest();
   const resolvedKey = resolveApiKey(req);
 
   upload.single('document')(req, res, async (err) => {

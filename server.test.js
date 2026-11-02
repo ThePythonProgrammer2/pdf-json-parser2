@@ -23,17 +23,28 @@ const server = app.listen(0, async () => {
   const res2b = await makeRequest(port, '/api/v1/key-status', 'GET', null, {});
   console.log('Test 2b (key-status):', res2b.statusCode, res2b.body);
 
+  // Test 3b: Metrics endpoint
+  const res2c = await makeRequest(port, '/api/v1/metrics', 'GET', null, {});
+  console.log('Test 2c (metrics):', res2c.statusCode, res2c.body);
+  if (res2c.statusCode !== 200) {
+    throw new Error('Expected /api/v1/metrics to return 200');
+  }
+  const metricsPayload = JSON.parse(res2c.body);
+  if (typeof metricsPayload.cacheSize !== 'number' || typeof metricsPayload.requestCount !== 'number') {
+    throw new Error('Expected metrics payload to include numeric cacheSize and requestCount');
+  }
+
   // Test 4: Key status with Authorization header
-  const res2c = await makeRequest(port, '/api/v1/key-status', 'GET', null, {
+  const res2d = await makeRequest(port, '/api/v1/key-status', 'GET', null, {
     'Authorization': 'Bearer AIza-test-google-key',
   });
-  console.log('Test 2c (key-status with Google key):', res2c.statusCode, res2c.body);
+  console.log('Test 2d (key-status with Google key):', res2d.statusCode, res2d.body);
 
   // Test 5: Key status with OpenRouter key
-  const res2d = await makeRequest(port, '/api/v1/key-status', 'GET', null, {
+  const res2e = await makeRequest(port, '/api/v1/key-status', 'GET', null, {
     'x-openrouter-key': 'sk-or-v1-test123',
   });
-  console.log('Test 2d (key-status with OpenRouter key):', res2d.statusCode, res2d.body);
+  console.log('Test 2e (key-status with OpenRouter key):', res2e.statusCode, res2e.body);
 
   // Test 6: Invoice PDF
   let invoicePdf = null;

@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: pdf-json-parser2-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  python-api:
+    image: python:3.14-slim
+    container_name: pdf-json-parser2-api
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    command: >-
+      bash -lc "pip install -r requirements.txt && PYTHONPATH=. uvicorn app:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+
+  gateway:
+    image: golang:1.22-alpine
+    container_name: pdf-json-parser2-gateway
+    working_dir: /workspace/go
+    volumes:
+      - ..:/workspace
+    command: >-
+      sh -lc "go run ./cmd/gateway"
+    depends_on:
+      - python-api
+      - redis
+    ports:
+      - "8080:8080"
+    environment:
+      PYTHON_URL: http://python-api:8000
+
+  worker:
+    image: golang:1.22-alpine
+    container_name: pdf-json-parser2-worker
+    working_dir: /workspace/go
+    volumes:
+      - ..:/workspace
+    command: >-
+      sh -lc "go run ./cmd/worker_pool"
+    depends_on:
+      - python-api
+      - redis
+
+volumes:
+  redis-data:

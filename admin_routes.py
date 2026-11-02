@@ -9,6 +9,7 @@ from api.schemas.responses import HealthResponse, RoutingInfoResponse
 from services.orchestrator import get_routing_info
 from ocr.smart_ocr_selector import get_engine_status as ocr_status
 from caching.cache_manager import CacheManager
+from billing import get_usage_tracker, get_plan_catalog
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
@@ -74,6 +75,53 @@ async def cache_stats():
     return {
         "success": True,
         "stats": cm.stats(),
+    }
+
+
+@router.get("/key-status")
+async def key_status():
+    """Return the current API key configuration state for monetization."""
+    from app import app as app_instance
+
+    configured = bool(getattr(app_instance.state, "api_key", None))
+    return {
+        "auth_enabled": bool(getattr(app_instance.state, "auth_enabled", False)),
+        "configured": configured,
+        "status": "enabled" if configured else "disabled",
+        "key_prefix": (app_instance.state.api_key[:8] if configured else None),
+    }
+
+
+@router.get("/usage")
+async def usage_summary():
+    """Return the current usage counters used for API billing and quota checks."""
+    tracker = get_usage_tracker()
+    summary = tracker.summary()
+    plan_name = "starter"
+    plan = get_plan_catalog().get(plan_name, {"quota_limit": 1000})
+    return {
+        "requests_total": summary["requests_total"],
+        "requests_24h": summary["requests_24h"],
+        "unique_ips": summary["unique_ips"],
+        "unique_keys": summary["unique_keys"],
+        "quota_limit": plan["quota_limit"],
+        "plan": plan_name,
+        "quota_used": min(summary["requests_24h"], plan["quota_limit"]),
+    }
+
+
+@router.get("/plans")
+async def plans_catalog():
+    """Return the product plan catalog for managed API billing."""
+    return {
+        "success": True,
+        "plans": [
+            {
+                "name": plan_name,
+                **plan,
+            }
+            for plan_name, plan in get_plan_catalog().items()
+        ],
     }
 
 

@@ -6,6 +6,7 @@ models are available, uses the ML classifier for higher accuracy.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +21,6 @@ class ClassificationResult:
     scores: dict[str, float]
 
 
-# Heuristic keyword sets for each document type
 _INVOICE_KEYWORDS = [
     "invoice", "bill to", "amount due", "subtotal", "tax", "total",
     "payment terms", "po number", "remit to", "balance due",
@@ -63,19 +63,29 @@ def is_ml_available() -> bool:
         return False
 
 
+def _count_keyword_hits(text_lower: str, keywords: list[str]) -> int:
+    return sum(1 for kw in keywords if kw in text_lower)
+
+
 def _heuristic_classify(text: str) -> ClassificationResult:
     """Classify a document using keyword matching heuristics."""
     text_lower = text.lower()
     scores: dict[str, float] = {}
+    finance_hits = _count_keyword_hits(text_lower, _INVOICE_KEYWORDS)
+    resume_hits = _count_keyword_hits(text_lower, _RESUME_KEYWORDS)
+    money_matches = len(re.findall(r"\$\s?\d[\d,]*\.\d{2}|\b\d+\.\d{2}\b", text))
 
     for doc_type, keywords in _KEYWORD_SETS.items():
-        matches = sum(1 for kw in keywords if kw in text_lower)
+        matches = _count_keyword_hits(text_lower, keywords)
         scores[doc_type] = matches / len(keywords) if keywords else 0.0
+
+    if finance_hits > 0 and (finance_hits >= resume_hits or money_matches > 0):
+        scores["invoice"] = max(scores.get("invoice", 0.0), 0.75)
+        scores["resume"] = min(scores.get("resume", 0.0), 0.5)
 
     best_type = max(scores, key=scores.get) if scores else "unknown"
     best_score = scores.get(best_type, 0.0)
 
-    # If no keywords matched, return unknown
     if best_score == 0.0:
         return ClassificationResult(
             document_type="unknown",
@@ -113,8 +123,6 @@ def classify(text: str) -> ClassificationResult:
         )
 
     if is_ml_available():
-        # ML classification would go here — requires trained models
-        # For now, fall through to heuristic
         pass
 
     return _heuristic_classify(text)

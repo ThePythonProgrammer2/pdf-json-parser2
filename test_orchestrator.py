@@ -106,6 +106,39 @@ class TestOrchestrator:
         result = orchestrate_extract(invoice_pdf_bytes, filename="invoice.pdf", merge=True)
         assert isinstance(result, ExtractionResult)
 
+    def test_extract_runs_ocr_when_text_is_empty(self, monkeypatch):
+        empty_result = ExtractionResult(
+            source_filename="scanned.pdf",
+            pages=[PageContent(page_number=1, text="")],
+            full_text="",
+            metadata=EngineMetadata(
+                engine_name="pymupdf",
+                engine_version="0.1.0",
+                processing_time_ms=0.0,
+                page_count=1,
+            ),
+        )
+
+        calls: dict[str, bool] = {}
+
+        def fake_run_chain(*args, **kwargs):
+            return empty_result
+
+        def fake_ocr(source, result, filename):
+            calls["ocr_used"] = True
+            result.metadata.engine_name = "easyocr"
+            result.full_text = "Invoice total $123.45"
+            result.pages = [PageContent(page_number=1, text="Invoice total $123.45")]
+            return result
+
+        monkeypatch.setattr("orchestrator.run_chain", fake_run_chain)
+        monkeypatch.setattr("orchestrator._run_ocr_fallback", fake_ocr, raising=False)
+
+        result = orchestrate_extract(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF", filename="scanned.pdf")
+
+        assert calls.get("ocr_used") is True
+        assert result.full_text == "Invoice total $123.45"
+
     def test_get_routing_info(self, invoice_pdf_bytes: bytes):
         info = get_routing_info(invoice_pdf_bytes)
         assert "pdf_type" in info

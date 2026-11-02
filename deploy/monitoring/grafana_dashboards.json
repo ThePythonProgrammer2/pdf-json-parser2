@@ -1,0 +1,19 @@
+{
+  "title": "PDF JSON Parser Premium Overview",
+  "panels": [
+    {
+      "title": "Request volume",
+      "type": "stat",
+      "targets": [{ "expr": "sum(rate(http_requests_total[5m]))" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Queue depth",
+      "type": "stat",
+      "targets": [{ "expr": "queue_depth" }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    }
+  ],
+  "schemaVersion": 38,
+  "version": 1
+}

@@ -82,3 +82,22 @@ def test_reconstruct_text():
     text = reconstruct_text(SAMPLE_INVOICE_TEXT, page_number=1)
     assert isinstance(text, str)
     assert len(text) > 0
+
+
+def test_financial_tokens_override_resume_classification():
+    text = """
+    Senior software engineer with strong experience in Python, APIs, and distributed systems.
+    Work experience includes design, leadership, and mentoring.
+    Education includes a CS degree from a university.
+
+    Invoice #INV-1001
+    Subtotal: $2,400.00
+    Tax (8%): $192.00
+    Total: $2,592.00
+    Payment Terms: Net 30
+    """
+
+    result = classify(text)
+    assert result.document_type == "invoice"
+    assert result.confidence >= 0.3
+

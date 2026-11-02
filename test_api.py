@@ -116,3 +116,48 @@ class TestRoutingInfo:
         assert data["success"] is True
         assert "data" in data
         assert data["data"]["pdf_type"] in ("text_based", "scanned_image", "form_pdf", "corrupted", "unknown")
+
+
+class TestCommercialAPILayer:
+    def test_key_status(self, client: TestClient):
+        response = client.get("/api/v1/key-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert "auth_enabled" in data
+        assert "configured" in data
+
+    def test_usage_tracking(self, client: TestClient):
+        response = client.get("/api/v1/usage")
+        assert response.status_code == 200
+        data = response.json()
+        assert "requests_total" in data
+        assert "requests_24h" in data
+        assert "plan" in data
+        assert "quota_limit" in data
+
+    def test_plan_quota_metadata(self, client: TestClient):
+        response = client.get("/api/v1/plans")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert any(plan["name"] == "starter" for plan in data["plans"])
+
+    def test_async_job_status(self, client: TestClient, invoice_pdf_bytes: bytes):
+        response = client.post(
+            "/api/v1/async/parse-document",
+            files={"file": ("invoice.pdf", invoice_pdf_bytes, "application/pdf")},
+        )
+        assert response.status_code == 200
+        body = response.text
+        assert "job_id" in body or "event" in body
+
+        # job metadata is retrievable after submission
+        job_id = None
+        for line in body.splitlines():
+            if "job_id" in line:
+                job_id = line.split('"job_id"')[1].split(':', 1)[1].strip().strip(',').strip('"')
+                break
+        if job_id:
+            status_response = client.get(f"/api/v1/async/jobs/{job_id}")
+            assert status_response.status_code == 200
+            assert "status" in status_response.json()

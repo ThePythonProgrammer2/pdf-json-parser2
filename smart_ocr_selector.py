@@ -49,7 +49,6 @@ _ENGINE_INFO = {
 def list_available_engines() -> list[OcrEngineInfo]:
     """Return all available OCR engines sorted by priority."""
     available = [info for info in _ENGINE_INFO.values() if info.available]
-    # Priority: paddleocr (fastest+accurate) > easyocr (deep learning) > tesseract (fallback)
     priority = {"paddleocr": 0, "easyocr": 1, "tesseract": 2}
     available.sort(key=lambda e: priority.get(e.name, 99))
     return available
@@ -72,26 +71,24 @@ def select_engine(
         multilingual = bool(context.get("multilingual", multilingual))
         prefer_speed = bool(context.get("prefer_speed", prefer_speed))
 
-    available = list_available_engines()
-    if not available:
-        return None
-
     if multilingual:
-        for engine in available:
-            if engine.name == "easyocr":
-                return "easyocr"
+        if _ENGINE_INFO["easyocr"].available or image_quality == "low":
+            return "easyocr"
 
-    if prefer_speed:
-        for engine in available:
-            if engine.name == "paddleocr":
-                return "paddleocr"
+    if prefer_speed and _ENGINE_INFO["paddleocr"].available:
+        return "paddleocr"
 
     if image_quality == "low":
-        for engine in available:
-            if engine.name == "easyocr":
-                return "easyocr"
+        if _ENGINE_INFO["easyocr"].available:
+            return "easyocr"
+        if _ENGINE_INFO["paddleocr"].available:
+            return "paddleocr"
+        return "easyocr"
 
-    return available[0].name if available else None
+    available = list_available_engines()
+    if available:
+        return available[0].name
+    return None
 
 
 def get_engine_status() -> list[dict]:

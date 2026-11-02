@@ -10,10 +10,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import BinaryIO
 
-from api.schemas.document import ExtractionResult, AnalysisInfo
+from api.schemas.document import ExtractionResult, AnalysisInfo, PageContent
 from services.intelligent_router import route, ENGINE_REGISTRY
 from services.fallback_chain import run_chain
 from services.result_merger import merge_results
+
+try:
+    from ocr.smart_ocr_selector import select_engine
+except Exception:  # pragma: no cover
+    select_engine = None
 
 
 class OrchestratorError(Exception):
@@ -45,6 +50,82 @@ def _enrich_with_analysis(result: ExtractionResult) -> ExtractionResult:
         phones=entities.phones,
     )
     return result
+
+
+def _read_bytes(source: str | Path | bytes | BinaryIO) -> bytes:
+    """Normalize a source into PDF bytes for OCR rendering."""
+    if isinstance(source, (str, Path)):
+        return Path(source).read_bytes()
+    if isinstance(source, bytes):
+        return source
+    if hasattr(source, "read"):
+        return source.read()
+    raise TypeError(f"Unsupported source type: {type(source)}")
+
+
+def _run_ocr_fallback(
+    source: str | Path | bytes | BinaryIO,
+    result: ExtractionResult,
+    filename: str = "document.pdf",
+) -> ExtractionResult:
+    """Render scanned PDFs as images and OCR them when the text layer is empty."""
+    if result is None:
+        return result
+
+    has_text = bool(result.full_text.strip()) or any(page.text.strip() for page in result.pages)
+    if has_text:
+        return result
+
+    if select_engine is None:
+        return result
+
+    engine_name = select_engine({"has_text": False, "is_scanned": True})
+    if not engine_name:
+        return result
+
+    try:
+        import fitz
+
+        source_bytes = _read_bytes(source)
+        document = fitz.open(stream=source_bytes, filetype="pdf")
+        pages: list[PageContent] = []
+        errors: list[str] = []
+
+        for page_index, page in enumerate(document, start=1):
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            image_bytes = pix.tobytes("png")
+
+            if engine_name == "easyocr":
+                from easyocr_engine import extract_text_from_image
+                text = extract_text_from_image(image_bytes)
+            elif engine_name == "tesseract":
+                from tesseract_engine import extract_text_from_image
+                text = extract_text_from_image(image_bytes)
+            elif engine_name == "paddleocr":
+                from paddleocr_engine import extract_text_from_image
+                text = extract_text_from_image(image_bytes)
+            else:
+                text = ""
+
+            cleaned = text.strip()
+            if not cleaned:
+                cleaned = ""
+            pages.append(PageContent(page_number=page_index, text=cleaned))
+
+        document.close()
+
+        if not pages:
+            return result
+
+        result.pages = pages
+        result.full_text = "\n".join(page.text for page in pages)
+        result.metadata.engine_name = f"ocr:{engine_name}"
+        result.metadata.engine_version = f"{engine_name}-fallback"
+        result.metadata.page_count = len(pages)
+        result.metadata.errors.extend(errors)
+        return result
+    except Exception:
+        return result
 
 
 def extract(
@@ -85,6 +166,7 @@ def extract(
 
         if results:
             merged = merge_results(results, filename=filename)
+            merged = _run_ocr_fallback(source, merged, filename=filename)
             if analyze:
                 merged = _enrich_with_analysis(merged)
             return merged
@@ -94,6 +176,8 @@ def extract(
         result = run_chain(source, chain, filename=filename)
     except Exception as exc:
         raise OrchestratorError(f"Extraction failed: {exc}") from exc
+
+    result = _run_ocr_fallback(source, result, filename=filename)
 
     if analyze:
         result = _enrich_with_analysis(result)

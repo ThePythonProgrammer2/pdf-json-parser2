@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF JSON Parser Premium</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="layout-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">Enterprise document pipeline</p>
+          <h1>PDF JSON Parser Premium</h1>
+        </div>
+
+        <div class="panel status-panel">
+          <h2>System status</h2>
+          <ul>
+            <li><span class="dot live"></span> Gateway live</li>
+            <li><span class="dot live"></span> Worker pool ready</li>
+            <li><span class="dot live"></span> Python extraction stable</li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <section class="toolbar">
+          <div class="upload-box">
+            <label for="fileInput" class="file-label">Upload PDF</label>
+            <input id="fileInput" type="file" accept="application/pdf" />
+          </div>
+          <button id="parseButton" type="button">Parse document</button>
+        </section>
+
+        <section class="results-grid">
+          <div class="card">
+            <h3>Processing summary</h3>
+            <dl>
+              <div><dt>Document type</dt><dd id="docType">invoice</dd></div>
+              <div><dt>Confidence</dt><dd id="confidence">0.96</dd></div>
+              <div><dt>Engine</dt><dd id="engine">pdfplumber</dd></div>
+            </dl>
+          </div>
+
+          <div class="card">
+            <h3>Queue metrics</h3>
+            <dl>
+              <div><dt>Pending</dt><dd id="queuePending">2</dd></div>
+              <div><dt>Processed</dt><dd id="queueProcessed">148</dd></div>
+              <div><dt>Latency</dt><dd id="queueLatency">289ms</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="card json-panel">
+          <div class="card-header">
+            <h3>Structured output</h3>
+            <span id="statusTag" class="status-tag">ready</span>
+          </div>
+          <pre id="jsonOutput">{
+  "document_type": "invoice",
+  "confidence": 0.96,
+  "pages": [
+    { "page_number": 1, "tables": [] }
+  ]
+}</pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

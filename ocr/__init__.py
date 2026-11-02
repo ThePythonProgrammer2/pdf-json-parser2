@@ -4,3 +4,4 @@ from .tesseract_engine import *
 from .easyocr_engine import *
 from .paddleocr_engine import *
 from .smart_ocr_selector import *
+from .vision_llm_client import *
